@@ -328,11 +328,11 @@ rebuild_via_api() {
   rebuild_mita_state_direct
 }
 
-# v1.2.4: Rebuild Caddyfile directly from SQLite DB
+# v1.2.4: Rebuild Caddyfile directly from local applied cache
 # Bug 23/26/38/39: uses caddyTemplate.js (single source of truth) so directive
 # syntax and log-rotation settings are always consistent with install.sh.
 rebuild_caddyfile_direct() {
-  log_step "Rebuilding Caddyfile from SQLite database"
+  log_step "Rebuilding Caddyfile from local applied cache"
   [[ ! -f "$DB_PATH" ]] && { log_warn "DB not found at $DB_PATH - skipping Caddyfile rebuild"; return; }
   [[ ! -f "$PANEL_CONFIG" ]] && { log_warn "Panel config not found - skipping Caddyfile rebuild"; return; }
 
@@ -393,7 +393,7 @@ const probeSecret = cfg.probeSecret ||
   (() => { try { return fs.readFileSync(CADDY_CFGDIR + '/probe_secret', 'utf8').trim(); } catch { return ''; } })();
 // Bug 81: probe_resistance mode - derive from probeSecret when unset.
 let probeMode = (cfg.probeMode || '').trim().toLowerCase();
-if (!probeMode) probeMode = probeSecret -> 'secret' : 'bare';
+if (!probeMode) probeMode = probeSecret ? 'secret' : 'bare';
 
 // Bug 26: use shared template for consistency with install.sh
 let content;
@@ -411,7 +411,7 @@ if (fs.existsSync(TEMPLATE_JS)) {
     logFile:     '/var/log/caddy-naive/access.log',
     authAuditLogPath: cfg.authAuditLogPath || '/var/log/caddy-naive/auth-audit.log',
     trafficAuditLogPath: cfg.trafficAuditLogPath || '/var/log/caddy-naive/traffic-audit.log',
-    upstream:    (cfg.cascadeEnabled && cfg.cascadeNaiveUpstream) -> cfg.cascadeNaiveUpstream : ''
+    upstream:    (cfg.cascadeEnabled && cfg.cascadeNaiveUpstream) ? cfg.cascadeNaiveUpstream : ''
   }, naiveUsers);
 } else {
   // Fallback (template not available): emit correct Bug 83 syntax directly
@@ -428,12 +428,12 @@ if (fs.existsSync(TEMPLATE_JS)) {
   else if (probeMode === 'secret' && probeSecret) probeLine = '\n    probe_resistance ' + probeSecret;
   else probeLine = '\n    probe_resistance';
   const authAuditLogPath = (cfg.authAuditLogPath || '').trim();
-  const authAuditLogLine = authAuditLogPath -> '\n    auth_audit_log ' + authAuditLogPath : '';
+  const authAuditLogLine = authAuditLogPath ? '\n    auth_audit_log ' + authAuditLogPath : '';
   const trafficAuditLogPath = (cfg.trafficAuditLogPath || '').trim();
-  const trafficAuditLogLine = trafficAuditLogPath -> '\n    traffic_audit_log ' + trafficAuditLogPath : '';
+  const trafficAuditLogLine = trafficAuditLogPath ? '\n    traffic_audit_log ' + trafficAuditLogPath : '';
   const staticSite = cfg.staticSite || {};
   const siteRoot = staticSite.enabled === true
-    -> ((staticSite.root || '').trim() || ('/var/www/' + (cfg.domain || 'localhost') + '/dist'))
+    ? ((staticSite.root || '').trim() || ('/var/www/' + (cfg.domain || 'localhost') + '/dist'))
     : (cfg.fakeSiteDir || FAKE_SITE);
   content = [
     '{',
@@ -1277,7 +1277,7 @@ do_ssh_only() {
 # Rebuild Caddyfile + mita config from SQLite DB; no data loss.
 # v1.2.3: Calls /api/services/rebuild-all (falls back to direct DB rebuild).
 do_repair() {
-  log_step "Repair mode - rebuilding configs from SQLite database"
+  log_step "Repair mode - rebuilding configs from local applied cache"
 
   if ! $YES; then
     read -rp "Rebuild Caddyfile and mita state from DB-> [y/N]: " confirm

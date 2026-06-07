@@ -647,6 +647,8 @@ assert "install.sh defines tune_network wrapper and calls sysctl_tune.sh" \
   "grep -q '^tune_network()' '$REPO_ROOT/install.sh' && grep -q 'panel/scripts/sysctl_tune.sh' '$REPO_ROOT/install.sh'"
 assert "install.sh static-site opt-out skips source prompt branch" \
   "grep -q 'if \\[\\[ ! \"\\\${INPUT_STATIC_SITE_ENABLE:-Y}\" =~' '$REPO_ROOT/install.sh' && grep -q 'STATIC_SITE_DEPLOY_ON_INSTALL=false' '$REPO_ROOT/install.sh'"
+assert "no broken ternary operators remain in shell/runtime sources" \
+  "python3 - '$REPO_ROOT' <<'PY'\nfrom pathlib import Path\nimport sys\nroot = Path(sys.argv[1])\narrow = chr(45) + chr(62)\npatterns = ['probeSecret ' + arrow, arrow + ' ' + chr(39) + 'secret' + chr(39) + ' :']\npaths = [root / 'update.sh', root / 'install.sh', root / 'panel', root / 'tests']\nfor base in paths:\n    files = [base] if base.is_file() else [p for p in base.rglob('*') if p.is_file()]\n    for p in files:\n        text = p.read_text(encoding='utf-8', errors='ignore')\n        if any(pattern in text for pattern in patterns):\n            raise SystemExit(1)\nraise SystemExit(0)\nPY"
 assert "uninstall.sh removes iptables REDSOCKS chain" \
   "grep -q 'iptables -t nat -X REDSOCKS' '$REPO_ROOT/uninstall.sh'"
 assert "uninstall.sh removes mieru.service" \
