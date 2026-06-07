@@ -9,6 +9,14 @@ Backend Panel / PostgreSQL = source of truth
 Node Agent = executor that applies desired state
 ```
 
+## Terminal Compatibility
+
+`install.sh`, `update.sh`, and `uninstall.sh` default to English/ASCII output so they remain readable over SSH from Windows PowerShell and terminals without a UTF-8 locale. If you want UTF-8 in Windows PowerShell before SSH, you can run:
+
+```powershell
+chcp 65001
+```
+
 ## Agent Role
 
 - installed on a node server;

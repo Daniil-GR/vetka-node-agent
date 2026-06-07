@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# tests/e2e.sh вЂ” End-to-end regression test for Vetka Node Agent v1.2.6
+# tests/e2e.sh End-to-end regression test for Vetka Node Agent v1.2.6
 #
 # Tests:
-#   install в†’ validate в†’ service-check в†’ create-user-via-API в†’ re-validate в†’
-#   curl-https в†’ download-config в†’ sing-box check в†’ uninstall в†’ assert-clean
+# install validate service-check create-user-via-API re-validate
+# curl-https download-config sing-box check uninstall assert-clean
 #
 # Usage (on a fresh Ubuntu 24.04 amd64 VPS with valid DNS A record):
-#   sudo bash tests/e2e.sh --domain vpn.example.com --email admin@example.com
-#   sudo bash tests/e2e.sh --domain vpn.example.com --email admin@example.com --skip-install
-#   sudo bash tests/e2e.sh --help
+# sudo bash tests/e2e.sh --domain vpn.example.com --email admin@example.com
+# sudo bash tests/e2e.sh --domain vpn.example.com --email admin@example.com --skip-install
+# sudo bash tests/e2e.sh --help
 #
-# Exit codes:  0 = all tests passed   1 = one or more tests failed
+# Exit codes: 0 = all tests passed 1 = one or more tests failed
 # ==============================================================================
 set -euo pipefail
 
-# в”Ђв”Ђ Colours в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# Colours
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
 
@@ -26,13 +26,13 @@ warn_count=0
 log_info()  { echo -e "${GREEN}[INFO]${NC}  $*"; }
 log_warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; (( warn_count++ )); }
 log_error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
-log_step()  { echo -e "\n${CYAN}${BOLD}в–¶ $*${NC}"; }
+log_step()  { echo -e "\n${CYAN}${BOLD}==> $*${NC}"; }
 
-pass() { echo -e "  ${GREEN}вњ“${NC}  $1"; (( pass_count++ )); }
-fail() { echo -e "  ${RED}вњ—${NC}  $1"; (( fail_count++ )); }
-skip() { echo -e "  ${YELLOW}вЉ${NC}  $1 (skipped)"; }
+pass() { echo -e "  ${GREEN}PASS${NC}  $1"; (( pass_count++ )); }
+fail() { echo -e "  ${RED}FAIL${NC}  $1"; (( fail_count++ )); }
+skip() { echo -e "  ${YELLOW}SKIP${NC}  $1 (skipped)"; }
 
-# в”Ђв”Ђ Constants в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# Constants
 CADDY_BIN="/usr/local/bin/caddy-naive"
 CADDY_FILE="/etc/caddy-naive/Caddyfile"
 CADDY_CONFIG_DIR="/etc/caddy-naive"
@@ -53,7 +53,7 @@ SKIP_UNINSTALL=false
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 
-# в”Ђв”Ђ Argument parsing в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# Argument parsing
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --domain)       DOMAIN="${2:-}";       shift ;;
@@ -79,41 +79,39 @@ done
 [[ -z "$EMAIL" ]]   && EMAIL="admin@${DOMAIN}"
 E2E_NODE_SECRET="${NODE_SECRET:-vetka_e2e_$(openssl rand -hex 24)}"
 
-# в”Ђв”Ђ Helper: assert with message в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# Helper: assert with message
 assert() {
   local label="$1"; shift
   if eval "$*" &>/dev/null; then pass "$label"; else fail "$label"; fi
 }
 
-# в”Ђв”Ђ Cookie jar for API calls в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# Cookie jar for API calls
 COOKIE_JAR=$(mktemp)
 trap 'rm -f "$COOKIE_JAR"' EXIT
 
-# в”Ђв”Ђ Detect admin password from config if not supplied в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# Detect admin password from config if not supplied
 detect_admin_pass() {
   if [[ -z "$ADMIN_PASS" ]] && [[ -f "$PANEL_CONFIG" ]]; then
-    # Panel stores only bcrypt hash; try to read from install log
+#
     local from_log
     from_log=$(grep -oP "(?<=Generated password: )[\w]+" \
                  /var/log/vetka-node-agent-install.log 2>/dev/null | tail -1 || true)
     ADMIN_PASS="${from_log:-}"
   fi
   if [[ -z "$ADMIN_PASS" ]]; then
-    log_warn "Could not detect admin password вЂ” API tests will be skipped"
+    log_warn "Could not detect admin password - API tests will be skipped"
   fi
 }
 
-# в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
-log_step "E2E test suite вЂ” Vetka Node Agent v1.2.6"
+#
+log_step "E2E test suite - Vetka Node Agent v1.2.6"
 echo "  Domain:    $DOMAIN"
 echo "  Email:     $EMAIL"
 echo "  Port:      $NAIVE_PORT"
 echo "  Repo root: $REPO_ROOT"
 echo "  Node secret: configured (hidden)"
 
-# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
-# STEP 1 вЂ” Install
-# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+# STEP 1 Install
 log_step "Step 1: Install"
 if $SKIP_INSTALL; then
   skip "Installation (--skip-install)"
@@ -137,9 +135,7 @@ fi
 
 detect_admin_pass
 
-# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
-# STEP 2 вЂ” Caddyfile validation
-# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+# STEP 2 Caddyfile validation
 log_step "Step 2: Caddyfile validation"
 assert "Caddyfile exists"                    "[[ -f '$CADDY_FILE' ]]"
 assert "probe_secret file exists"            "[[ -f '${CADDY_CONFIG_DIR}/probe_secret' ]]"
@@ -152,18 +148,18 @@ assert "$SITE_INDEX_LABEL"                   "[[ -f '${FAKE_SITE_DIR}/index.html
 
 if [[ -x "$CADDY_BIN" ]]; then
   if "$CADDY_BIN" validate --config "$CADDY_FILE" --adapter caddyfile &>/dev/null; then
-    pass "caddy validate в†’ Valid configuration"
+    pass "caddy validate  Valid configuration"
   else
     fail "caddy validate returned an error"
     "$CADDY_BIN" validate --config "$CADDY_FILE" --adapter caddyfile 2>&1 | head -20 || true
   fi
-  # Bug 23: check that no bare "basic_auth" line without arguments exists
+#
   if grep -qP '^\s+basic_auth\s*$' "$CADDY_FILE" 2>/dev/null; then
     fail "Caddyfile contains bare 'basic_auth' with no arguments (Bug 23)"
   else
     pass "Caddyfile: no bare 'basic_auth' without arguments"
   fi
-  # Vetka node-agent: site block intentionally uses explicit tls <email>.
+#
   if grep -qP '^\s+tls\s+\S+@' "$CADDY_FILE" 2>/dev/null; then
     pass "Caddyfile: explicit 'tls <email>' directive present"
   else
@@ -179,38 +175,36 @@ if [[ -x "$CADDY_BIN" ]]; then
   else
     fail "Caddyfile permissions are not root:caddy 640"
   fi
-  # Bug 30: order directive present
+#
   if grep -q 'order forward_proxy before file_server' "$CADDY_FILE" 2>/dev/null; then
     pass "Caddyfile: 'order forward_proxy before file_server' present (Bug 30)"
   else
     fail "Caddyfile missing 'order forward_proxy before file_server' (Bug 30)"
   fi
-  # Bug 38: roll_keep_for present
+#
   if grep -q 'roll_keep_for' "$CADDY_FILE" 2>/dev/null; then
     pass "Caddyfile: 'roll_keep_for' log rotation present (Bug 38)"
   else
     fail "Caddyfile missing 'roll_keep_for' (Bug 38)"
   fi
-  # Bug 21: no duplicate log blocks
+#
   log_count=$(grep -c '^\s*log\s*{' "$CADDY_FILE" 2>/dev/null || echo 0)
   if [[ "$log_count" -le 1 ]]; then
     pass "Caddyfile: only one log block (Bug 21)"
   else
-    fail "Caddyfile has $log_count log blocks вЂ” duplicate (Bug 21)"
+    fail "Caddyfile has $log_count log blocks  duplicate (Bug 21)"
   fi
-  # Bug 60: caddy fmt should have been run вЂ” check no mixed-indent artifacts
+#
   if "$CADDY_BIN" fmt --diff "$CADDY_FILE" 2>/dev/null | grep -q '^[-+]'; then
-    log_warn "Caddyfile has fmt differences (Bug 60 вЂ” caddy fmt may not have run)"
+    log_warn "Caddyfile has fmt differences (Bug 60  caddy fmt may not have run)"
   else
     pass "Caddyfile: caddy fmt shows no differences (Bug 60)"
   fi
 else
-  skip "caddy binary not found at $CADDY_BIN вЂ” skipping validation"
+  skip "caddy binary not found at $CADDY_BIN  skipping validation"
 fi
 
-# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
-# STEP 3 вЂ” Service health check
-# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+# STEP 3 Service health check
 log_step "Step 3: Service health"
 assert "caddy-naive.service active"          "systemctl is-active caddy-naive"
 assert "caddy-naive runs as user 'caddy' (Bug 37)" \
@@ -250,28 +244,26 @@ assert "caddy-naive NOT running as root (Bug 37)" \
 if timedatectl status 2>/dev/null | grep -q "synchronized: yes"; then
   pass "NTP time synchronised"
 else
-  log_warn "Time NOT synchronised вЂ” critical for Mieru"
+  log_warn "Time NOT synchronised  critical for Mieru"
 fi
 
-# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
-# STEP 4 вЂ” HTTP/HTTPS connectivity
-# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+# STEP 4 HTTP/HTTPS connectivity
 log_step "Step 4: HTTP/HTTPS connectivity"
 assert "port :80 listening (ACME + redirect, Bug 20)" \
        "ss -tlnup sport = :80 | grep -q :80"
 assert "port :$NAIVE_PORT listening" \
        "ss -tlnup sport = :${NAIVE_PORT} | grep -q :${NAIVE_PORT}"
 
-# HTTP в†’ HTTPS redirect (308)
+# HTTP HTTPS redirect (308)
 http_code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 \
               "http://${DOMAIN}/" 2>/dev/null || echo "000")
 if [[ "$http_code" == "308" || "$http_code" == "301" || "$http_code" == "302" ]]; then
-  pass "HTTP в†’ HTTPS redirect returns $http_code"
+  pass "HTTP  HTTPS redirect returns $http_code"
 else
   log_warn "HTTP redirect returned $http_code (expected 30x; DNS/connectivity may not be ready)"
 fi
 
-# HTTPS в†’ fake site (200 with Server: Caddy)
+# HTTPS fake site (200 with Server: Caddy)
 https_code=$(curl -sk -o /dev/null -w "%{http_code}" --connect-timeout 10 \
                "https://${DOMAIN}/" 2>/dev/null || echo "000")
 if [[ "$https_code" == "200" ]]; then
@@ -280,15 +272,13 @@ else
   log_warn "HTTPS returned $https_code (expected 200; TLS cert may still be provisioning)"
 fi
 
-# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
-# STEP 5 вЂ” Create user via API + re-validate Caddyfile
-# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+# STEP 5 Create user via API + re-validate Caddyfile
 log_step "Step 5: Create user via API + Caddyfile re-validation"
 
 if [[ -z "$ADMIN_PASS" ]]; then
   skip "API tests (admin password not available)"
 else
-  # Login
+#
   login_res=$(curl -sf -c "$COOKIE_JAR" -X POST "$PANEL_URL/api/login" \
     -H "Content-Type: application/json" \
     -d "{\"username\":\"$ADMIN_USER\",\"password\":\"$ADMIN_PASS\"}" 2>/dev/null) || login_res=""
@@ -300,7 +290,7 @@ else
     TEST_PASS="E2ePass$(openssl rand -hex 6)"
     TEST_EMAIL="e2e@test.local"
 
-    # Create user
+#
     create_res=$(curl -sf -b "$COOKIE_JAR" -X POST "$PANEL_URL/api/users" \
       -H "Content-Type: application/json" \
       -d "{\"username\":\"$TEST_USER\",\"email\":\"$TEST_EMAIL\",\"password\":\"$TEST_PASS\",\"protocols\":[\"naive\",\"mieru\"],\"quotaMB\":0}" \
@@ -308,12 +298,12 @@ else
     USER_ID=$(echo "$create_res" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
 
     if [[ -n "$USER_ID" ]]; then
-      pass "User '$TEST_USER' created (id: ${USER_ID:0:8}вЂ¦)"
+      pass "User '$TEST_USER' created (id: ${USER_ID:0:8})"
 
-      # Wait for Caddy rebuild
+#
       sleep 3
 
-      # Re-validate Caddyfile after user creation
+#
       if [[ -x "$CADDY_BIN" ]]; then
         if "$CADDY_BIN" validate --config "$CADDY_FILE" --adapter caddyfile &>/dev/null; then
           pass "Caddyfile still valid after user creation"
@@ -323,7 +313,7 @@ else
         fi
       fi
 
-      # Bug 23: user line in Caddyfile uses  basic_auth USER PASS  (not bare keyword)
+#
       if grep -q "basic_auth $TEST_USER " "$CADDY_FILE" 2>/dev/null; then
         pass "Caddyfile: user line is 'basic_auth $TEST_USER <pass>' (Bug 23)"
       else
@@ -410,14 +400,14 @@ else
         fail "Reset IPs broke /api/users/:id/ip-history"
       fi
 
-      # Bug 34: placeholder should be gone once real user exists
+#
       if grep -q '_placeholder_' "$CADDY_FILE" 2>/dev/null; then
         fail "Caddyfile: placeholder NOT removed after real user added (Bug 34)"
       else
         pass "Caddyfile: placeholder replaced by real user (Bug 34)"
       fi
 
-      # mita should start after first user
+#
       sleep 2
       if systemctl is-active --quiet mita; then
         pass "mita started after first user created"
@@ -425,10 +415,10 @@ else
         log_warn "mita did not start after user creation (may be normal if no Mieru users)"
       fi
 
-      # Fetch NaiveProxy config
+#
       ENC_PASS=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$TEST_PASS'))" 2>/dev/null || true)
       naive_cfg=$(curl -sf -b "$COOKIE_JAR" \
-        "$PANEL_URL/api/users/$USER_ID/config/naive?password=${ENC_PASS}" \
+        "$PANEL_URL/api/users/$USER_ID/config/naive->password=${ENC_PASS}" \
         2>/dev/null) || naive_cfg=""
       if echo "$naive_cfg" | python3 -c "import json,sys; d=json.load(sys.stdin); assert 'link' in d" 2>/dev/null; then
         pass "NaiveProxy client config returned 'link' field"
@@ -442,9 +432,9 @@ else
         fail "NaiveProxy client config invalid"
       fi
 
-      # Fetch Mieru/sing-box config
+#
       mieru_cfg=$(curl -sf -b "$COOKIE_JAR" \
-        "$PANEL_URL/api/users/$USER_ID/config/mieru?password=${ENC_PASS}" \
+        "$PANEL_URL/api/users/$USER_ID/config/mieru->password=${ENC_PASS}" \
         2>/dev/null) || mieru_cfg=""
       if echo "$mieru_cfg" | python3 -c "
 import json,sys
@@ -460,7 +450,7 @@ assert m[0].get('transport','TCP') in ('TCP','UDP'), 'bad transport'
         fail "Mieru sing-box config validation failed"
       fi
 
-      # Cleanup test user
+#
       curl -sf -b "$COOKIE_JAR" -X DELETE "$PANEL_URL/api/users/$USER_ID" >/dev/null 2>&1 || true
       log_info "Test user '$TEST_USER' cleaned up"
     else
@@ -471,14 +461,12 @@ assert m[0].get('transport','TCP') in ('TCP','UDP'), 'bad transport'
   fi
 fi
 
-# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
-# STEP 6 вЂ” update.sh --repair
-# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+# STEP 6 update.sh --repair
 log_step "Step 6: update.sh --repair"
 if [[ -f "$REPO_ROOT/update.sh" ]]; then
   if bash "$REPO_ROOT/update.sh" --repair -y &>/dev/null; then
     pass "update.sh --repair exited 0"
-    # Validate Caddyfile after repair
+#
     if [[ -x "$CADDY_BIN" ]]; then
       if "$CADDY_BIN" validate --config "$CADDY_FILE" --adapter caddyfile &>/dev/null; then
         pass "Caddyfile valid after --repair"
@@ -493,9 +481,7 @@ else
   skip "update.sh not found"
 fi
 
-# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
-# STEP 7 вЂ” idempotent reinstall (--force)
-# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+# STEP 7 idempotent reinstall (--force)
 log_step "Step 7: idempotent --force reinstall"
 if $SKIP_INSTALL; then
   skip "Idempotent reinstall (--skip-install set)"
@@ -521,9 +507,7 @@ else
   fi
 fi
 
-# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
-# STEP 8 вЂ” Uninstall + clean-state check
-# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+# STEP 8 Uninstall + clean-state check
 log_step "Step 8: Uninstall"
 if $SKIP_UNINSTALL; then
   skip "Uninstall (--skip-uninstall)"
@@ -534,7 +518,7 @@ else
     fail "uninstall.sh exited non-zero"
   fi
 
-  # Assert clean state
+#
   assert "caddy-naive binary removed"         "! [[ -f '/usr/local/bin/caddy-naive' ]]"
   assert "caddy-naive.service removed"        "! [[ -f '/etc/systemd/system/caddy-naive.service' ]]"
   assert "/etc/caddy-naive removed"           "! [[ -d '/etc/caddy-naive' ]]"
@@ -545,9 +529,7 @@ else
   assert "Node Agent PM2 process stopped"          "! pm2 list 2>/dev/null | grep -q vetka-node-agent"
 fi
 
-# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
-# STEP 9 вЂ” Version consistency check (without install)
-# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
+# STEP 9 Version consistency check (without install)
 log_step "Step 9: Version consistency across all files"
 VERSION_EXPECTED="1.2.6"
 check_version_in() {
@@ -568,7 +550,7 @@ check_version_in "CHANGELOG.md"          "$REPO_ROOT/CHANGELOG.md"              
 check_version_in "caddyTemplate.js"      "$REPO_ROOT/panel/server/caddyTemplate.js" "v1\\.2\\.6"
 check_version_in "uninstall.sh"          "$REPO_ROOT/uninstall.sh"                  "v1\\.2\\.6"
 
-# в”Ђв”Ђ Regression checks for post-release audit bugs 65-70 в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# Regression checks for post-release audit bugs 65-70
 log_step "Step 9b: Post-release audit regression checks (Bugs 65-70)"
 
 # Bug 65: ProtectSystem=strict (not full) in both install.sh and update.sh
@@ -622,7 +604,7 @@ assert "Bug73: install.sh htpasswd fallback installs apache2-utils" \
 assert "install.sh install_panel falls back to PWD/panel" \
   "grep -q 'PWD/panel' '$REPO_ROOT/install.sh'"
 
-# в”Ђв”Ђ Cascade Variant B (static) checks в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# Cascade Variant B (static) checks
 log_step "Step 9c: Cascade Variant B (redsocks + iptables + mieru-client)"
 
 CASC="$REPO_ROOT/panel/scripts/cascade_mieru.sh"
@@ -678,16 +660,14 @@ assert "index.html has exit port-range inputs" \
 assert "app.js posts cascadeMieru (host/portStart/portEnd/user/pass)" \
   "grep -q 'cascadeMieru' '$REPO_ROOT/panel/public/app.js' && grep -q 'portStart' '$REPO_ROOT/panel/public/app.js'"
 
-# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
 # Summary
-# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
 echo ""
-echo -e "${BOLD}в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ${NC}"
+echo -e "${BOLD}========================================${NC}"
 echo -e "${BOLD}  E2E Results${NC}"
-echo -e "${BOLD}в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ${NC}"
-echo -e "  ${GREEN}вњ“  Passed:${NC}   $pass_count"
-echo -e "  ${RED}вњ—  Failed:${NC}   $fail_count"
-echo -e "  ${YELLOW}вљ   Warnings:${NC} $warn_count"
+echo -e "${BOLD}========================================${NC}"
+echo -e "  ${GREEN}  Passed:${NC}   $pass_count"
+echo -e "  ${RED}  Failed:${NC}   $fail_count"
+echo -e "  ${YELLOW}  Warnings:${NC} $warn_count"
 echo ""
 
 if [[ "$fail_count" -eq 0 ]]; then

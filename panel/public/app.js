@@ -1246,7 +1246,7 @@ function renderIpHistoryRows(tbody, ips, colspan) {
 function renderPerUserSessions(data) {
   const tbody = el('user-sessions-tbody');
   if (!tbody) return;
-  if (el('user-active-ip-count')) el('user-active-ip-count').textContent = data?.uniqueActiveIps ?? 'вЂ”';
+  if (el('user-active-ip-count')) el('user-active-ip-count').textContent = data?.uniqueActiveIps ?? '-';
   if (data?.trackingAvailable === false) {
     tbody.innerHTML = `<tr><td colspan="5" class="table-empty">${esc(data.reason || 'auth audit log not configured')}</td></tr>`;
     return;
@@ -1272,7 +1272,7 @@ function renderPerUserSessions(data) {
 function renderPerUserIpHistory(data) {
   const tbody = el('user-ip-history-tbody');
   if (!tbody) return;
-  if (el('user-history-ip-count')) el('user-history-ip-count').textContent = data?.uniqueIpCount24h ?? 'вЂ”';
+  if (el('user-history-ip-count')) el('user-history-ip-count').textContent = data?.uniqueIpCount24h ?? '-';
   if (data?.trackingAvailable === false) {
     tbody.innerHTML = `<tr><td colspan="8" class="table-empty">${esc(data.reason || 'auth audit log not configured')}</td></tr>`;
     return;
@@ -1303,7 +1303,7 @@ function renderNodeSessions(data) {
   const tbody = el('node-sessions-tbody');
   if (!tbody) return;
   const sessions = data?.sessions || [];
-  if (el('node-active-ip-count')) el('node-active-ip-count').textContent = data?.uniqueActiveIps ?? '—';
+  if (el('node-active-ip-count')) el('node-active-ip-count').textContent = data?.uniqueActiveIps ?? '-';
   if (!sessions.length) {
     tbody.innerHTML = `<tr><td colspan="6" class="table-empty">No recent node IPs</td></tr>`;
     return;
@@ -1566,7 +1566,7 @@ function badge(active, trueLabel, falseLabel) {
 
 function infoList(rows) {
   return rows.map(([k, v]) =>
-    `<div class="info-row"><span>${esc(k)}</span><span>${esc(String(v ?? '—'))}</span></div>`
+    `<div class="info-row"><span>${esc(k)}</span><span>${esc(String(v ?? '-'))}</span></div>`
   ).join('');
 }
 

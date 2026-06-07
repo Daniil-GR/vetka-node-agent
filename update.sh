@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Vetka Node Agent вЂ” update.sh  v1.2.5
+# Vetka Node Agent - update.sh v1.2.5
 # Usage: bash update.sh [--dry-run] [--force] [--expose <domain>] [--ssh-only]
-#                       [--status] [--repair] [--help] [-y]
+# [--status] [--repair] [--help] [-y]
 #
 # v1.2.4: Fixed Caddyfile template (bugs 23-40); uses caddyTemplate.js.
-#   - --repair calls /api/services/rebuild-all to regenerate Caddyfile
-#   - update_caddy_naive() replaces update_naiveproxy()
-#   - rebuild_caddyfile_direct() now uses caddyTemplate.js (Bug 26)
-# v1.2.5: Hotfixes 41-64 вЂ” /var/lib/caddy perms, atomic saveConfig(),
-#   plaintext-password guard (Bug 44), reloadCaddy() simplified (Bug 50),
-#   mieruPort safe defaults (Bug 51), naive-port active check (Bug 52),
-#   caddy fmt (Bug 60), caddyTemplate indentation (Bug 63), README security
-#   notice (Bug 45).
+# - --repair calls /api/services/rebuild-all to regenerate Caddyfile
+# - update_caddy_naive() replaces update_naiveproxy()
+# - rebuild_caddyfile_direct() now uses caddyTemplate.js (Bug 26)
+# v1.2.5: Hotfixes 41-64 - /var/lib/caddy perms, atomic saveConfig(),
+# plaintext-password guard (Bug 44), reloadCaddy() simplified (Bug 50),
+# mieruPort safe defaults (Bug 51), naive-port active check (Bug 52),
+# caddy fmt (Bug 60), caddyTemplate indentation (Bug 63), README security
+# notice (Bug 45).
 # ==============================================================================
 set -euo pipefail
 
@@ -22,7 +22,7 @@ CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
 log_info()  { echo -e "${GREEN}[INFO]${NC}  $*"; }
 log_warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
-log_step()  { echo -e "\n${CYAN}${BOLD}в–¶ $*${NC}"; }
+log_step()  { echo -e "\n${CYAN}${BOLD}==> $*${NC}"; }
 log_dry()   { echo -e "${YELLOW}[DRY-RUN]${NC} $*"; }
 die()       { log_error "$*"; exit 1; }
 
@@ -38,7 +38,7 @@ on_error() {
 }
 trap 'on_error $LINENO' ERR
 
-# в”Ђв”Ђ Constants в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# Constants
 TARGET_VERSION="1.2.6"
 PANEL_DIR="/opt/vetka-node-agent"
 PANEL_CONFIG="/etc/vetka-node-agent/config.json"
@@ -55,7 +55,7 @@ CADDY_CONFIG_DIR="/etc/caddy-naive"
 CADDY_FILE="${CADDY_CONFIG_DIR}/Caddyfile"
 FAKE_SITE_DIR="/var/www/fake-site"
 
-# Legacy paths вЂ” kept only for migration cleanup
+# Legacy paths - kept only for migration cleanup
 LEGACY_NAIVE_BIN="/usr/local/bin/naive"
 LEGACY_NAIVE_CONFIG_DIR="/etc/naive"
 
@@ -70,7 +70,7 @@ VETKA_CADDY_REPO="${VETKA_CADDY_REPO:-https://github.com/Daniil-GR/caddy-forward
 VETKA_CADDY_BRANCH="${VETKA_CADDY_BRANCH:-naive}"
 VETKA_CADDY_BUILD_DIR="${VETKA_CADDY_BUILD_DIR:-/opt/caddy-forwardproxy-vetka}"
 
-# в”Ђв”Ђ Flags в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# Flags
 DRY_RUN=false
 FORCE=false
 YES=false
@@ -79,7 +79,7 @@ EXPOSE_DOMAIN=""
 UPDATE_STATIC_SITE=false
 SKIP_STATIC_SITE=false
 
-# в”Ђв”Ђ Parse args в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# Parse args
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -97,21 +97,21 @@ parse_args() {
     esac
     shift
   done
-  # Bug 85: under `set -e`, this `[[ ]] && ...` was the LAST statement in
-  # parse_args. When a MODE flag was given (e.g. --repair), the test
-  # `[[ -z "repair" ]]` is FALSE, so parse_args RETURNED 1 в†’ the caller in
-  # main() (`parse_args "$@"`) is a plain command that exits non-zero в†’
-  # `set -e` aborted the whole script with NO output, and the ERR trap on a
-  # function return is skipped (exactly the Bug 77 failure mode). This is why
-  # `--repair` exited 1 silently while `--force -y` (MODE empty в†’ test TRUE в†’
-  # return 0) worked. Use an explicit `if` + trailing `return 0`.
+#
+#
+#
+#
+#
+#
+#
+#
   if [[ -z "$MODE" ]]; then MODE="update"; fi
   return 0
 }
 
 print_help() {
   cat <<EOF
-${BOLD}Vetka Node Agent вЂ” update.sh  v${TARGET_VERSION}${NC}
+${BOLD}Vetka Node Agent - update.sh  v${TARGET_VERSION}${NC}
 
 USAGE:
   bash update.sh [options]
@@ -140,14 +140,14 @@ EXAMPLES:
 EOF
 }
 
-# в”Ђв”Ђ Prerequisite checks в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# Prerequisite checks
 # Bug 77: under `set -e`, a function whose LAST statement is `[[ cond ]] && die`
 # returns the exit status of the `[[ ]]` test. On the happy path the test is
-# FALSE в†’ the function returns 1 в†’ the *caller* (e.g. `check_root` in main) is a
-# plain command that exits non-zero в†’ `set -e` aborts the whole script with NO
+# FALSE -> the function returns 1 -> the *caller* (e.g. `check_root` in main) is a
+# plain command that exits non-zero -> `set -e` aborts the whole script with NO
 # output and the ERR trap on a function return is skipped. This is exactly why
 # `sudo bash update.sh --force -y` printed nothing and returned to the prompt
-# (traced: it died right after `check_root` в†’ `[[ 0 -ne 0 ]]`). Use explicit
+# (traced: it died right after `check_root` -> `[[ 0 -ne 0 ]]`). Use explicit
 # `if` blocks with a trailing `return 0`.
 check_root() {
   if [[ $EUID -ne 0 ]]; then die "Run as root"; fi
@@ -168,14 +168,14 @@ load_config() {
   EXPOSE=$(jq -r '.exposePanel'         "$PANEL_CONFIG")
   NODE_PORT=$(jq -r '.nodePort // .panelPort // 2222' "$PANEL_CONFIG")
   ADMIN_EMAIL=$(jq -r '.adminEmail // ""' "$PANEL_CONFIG")
-  # v1.2.3: read Caddy paths from config if present
+#
   CADDY_BIN=$(jq -r '.caddyBin     // "/usr/local/bin/caddy-naive"' "$PANEL_CONFIG")
   CADDY_FILE=$(jq -r '.caddyFile   // "/etc/caddy-naive/Caddyfile"' "$PANEL_CONFIG")
   CADDY_CONFIG_DIR=$(jq -r '.caddyConfigDir // "/etc/caddy-naive"'  "$PANEL_CONFIG")
   FAKE_SITE_DIR=$(jq -r 'if (.staticSite.enabled // false) then ((.staticSite.root // "") as $r | if $r != "" then $r else "/var/www/" + .domain + "/dist" end) else (.fakeSiteDir // "/var/www/fake-site") end' "$PANEL_CONFIG")
 }
 
-# в”Ђв”Ђ Bug 81: config migration в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# Bug 81: config migration
 # Existing installs (pre-Bug 81) have a probeSecret set but no probeMode field.
 # The panel's back-compat would treat that as 'secret' mode (probe_resistance
 # <secret>), which differs from the known-good reference server's BARE
@@ -190,7 +190,7 @@ migrate_config() {
     local tmp; tmp=$(mktemp)
     if jq '.probeMode = "bare"' "$PANEL_CONFIG" > "$tmp" 2>/dev/null && [[ -s "$tmp" ]]; then
       cat "$tmp" > "$PANEL_CONFIG"
-      log_info "Config migrated: probeMode='bare' (matches reference server) вњ“"
+      log_info "Config migrated: probeMode='bare' (matches reference server) OK"
     fi
     rm -f "$tmp"
   fi
@@ -199,7 +199,7 @@ migrate_config() {
     local tmp; tmp=$(mktemp)
     if jq '.authAuditLogPath = "/var/log/caddy-naive/auth-audit.log"' "$PANEL_CONFIG" > "$tmp" 2>/dev/null && [[ -s "$tmp" ]]; then
       cat "$tmp" > "$PANEL_CONFIG"
-      log_info "Config migrated: authAuditLogPath enabled for per-user sessions вњ“"
+      log_info "Config migrated: authAuditLogPath enabled for per-user sessions OK"
     fi
     rm -f "$tmp"
   fi
@@ -208,7 +208,7 @@ migrate_config() {
     local tmp; tmp=$(mktemp)
     if jq '.trafficAuditLogPath = "/var/log/caddy-naive/traffic-audit.log"' "$PANEL_CONFIG" > "$tmp" 2>/dev/null && [[ -s "$tmp" ]]; then
       cat "$tmp" > "$PANEL_CONFIG"
-      log_info "Config migrated: trafficAuditLogPath enabled for traffic accounting вњ“"
+      log_info "Config migrated: trafficAuditLogPath enabled for traffic accounting OK"
     fi
     rm -f "$tmp"
   fi
@@ -217,7 +217,7 @@ migrate_config() {
     local tmp; tmp=$(mktemp)
     if jq '.ipHistoryTtlHours = 24' "$PANEL_CONFIG" > "$tmp" 2>/dev/null && [[ -s "$tmp" ]]; then
       cat "$tmp" > "$PANEL_CONFIG"
-      log_info "Config migrated: ipHistoryTtlHours=24 вњ“"
+      log_info "Config migrated: ipHistoryTtlHours=24 OK"
     fi
     rm -f "$tmp"
   fi
@@ -233,13 +233,13 @@ migrate_config() {
     } + (.staticSite // {}))' "$PANEL_CONFIG" > "$tmp" 2>/dev/null && [[ -s "$tmp" ]]; then
     if ! cmp -s "$PANEL_CONFIG" "$tmp"; then
       cat "$tmp" > "$PANEL_CONFIG"
-      log_info "Config migrated: staticSite defaults added вњ“"
+      log_info "Config migrated: staticSite defaults added OK"
     fi
   fi
   rm -f "$tmp"
 }
 
-# в”Ђв”Ђ Backup в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# Backup
 auto_backup() {
   local ts; ts=$(date +%Y-%m-%d-%H%M%S)
   local bdir="$BACKUP_DIR/$ts"
@@ -265,18 +265,18 @@ auto_backup() {
   echo "$bdir"
 }
 
-# в”Ђв”Ђ Architecture detection в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# Architecture detection
 detect_arch() {
   case "$(uname -m)" in
     x86_64|amd64)  ARCH="amd64"; DEB_ARCH="amd64" ;;
-    # caddy-naive is amd64-only; Mieru still supports all arches
+#
     aarch64|arm64) ARCH="arm64"; DEB_ARCH="arm64" ;;
     armv7l)        ARCH="armv7"; DEB_ARCH="armhf"  ;;
     *) die "Unsupported arch: $(uname -m)" ;;
   esac
 }
 
-# в”Ђв”Ђ Version comparison в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# Version comparison
 version_gt() {
   [[ "$(printf '%s\n' "$1" "$2" | sort -V | tail -1)" == "$1" && "$1" != "$2" ]]
 }
@@ -297,67 +297,67 @@ get_caddy_version_file() {
   fi
 }
 
-# в”Ђв”Ђ v1.2.3: Rebuild Caddyfile via panel API (rebuild-all endpoint) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# v1.2.3: Rebuild Caddyfile via panel API (rebuild-all endpoint)
 # Used by --repair. Avoids duplicating build logic from index.js.
 rebuild_via_api() {
   log_step "Rebuilding Caddyfile + mita config via panel API (/api/services/rebuild-all)"
   local panel_url="http://127.0.0.1:${NODE_PORT}"
 
-  # We need a session cookie; read admin credentials from config
+#
   local admin_user; admin_user=$(jq -r '.adminUser // "admin"' "$PANEL_CONFIG")
 
-  # Try to get admin password hash and call API with session auth
-  # The panel must be running for this to work
+#
+#
   if ! curl -sf "$panel_url/" -o /dev/null 2>/dev/null; then
-    log_warn "Node Agent not responding at :${NODE_PORT} вЂ” rebuilding configs directly"
+    log_warn "Node Agent not responding at :${NODE_PORT} - rebuilding configs directly"
     rebuild_caddyfile_direct
     rebuild_mita_state_direct
     return
   fi
 
-  log_info "Node Agent is running вЂ” calling /api/services/rebuild-all"
-  # We can't use credentials here without the plaintext password, so fall back to direct rebuild
-  # The panel itself will reload Caddy after next user interaction.
-  # For repair we rebuild directly from DB to be safe.
+  log_info "Node Agent is running - calling /api/services/rebuild-all"
+#
+#
+#
   rebuild_caddyfile_direct
   rebuild_mita_state_direct
 }
 
-# в”Ђв”Ђ v1.2.4: Rebuild Caddyfile directly from SQLite DB в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# v1.2.4: Rebuild Caddyfile directly from SQLite DB
 # Bug 23/26/38/39: uses caddyTemplate.js (single source of truth) so directive
 # syntax and log-rotation settings are always consistent with install.sh.
 rebuild_caddyfile_direct() {
   log_step "Rebuilding Caddyfile from SQLite database"
-  [[ ! -f "$DB_PATH" ]] && { log_warn "DB not found at $DB_PATH вЂ” skipping Caddyfile rebuild"; return; }
-  [[ ! -f "$PANEL_CONFIG" ]] && { log_warn "Panel config not found вЂ” skipping Caddyfile rebuild"; return; }
+  [[ ! -f "$DB_PATH" ]] && { log_warn "DB not found at $DB_PATH - skipping Caddyfile rebuild"; return; }
+  [[ ! -f "$PANEL_CONFIG" ]] && { log_warn "Panel config not found - skipping Caddyfile rebuild"; return; }
 
   mkdir -p "$CADDY_CONFIG_DIR" /var/log/caddy-naive /var/lib/caddy
-  # Bug 66: --repair must restore correct ownership on log and data dirs
-  # (root is wrong вЂ” caddy-naive.service runs as User=caddy)
+#
+#
   id caddy &>/dev/null && chown caddy:caddy /var/log/caddy-naive /var/lib/caddy || true
 
-  # Bug 86: build the Caddyfile via a TEMP .js FILE rather than an inline
-  # `node -e "<huge double-quoted blob>"`.
-  #
-  # The previous inline form embedded the whole rebuild script inside a
-  # double-quoted bash string, so bash pre-processed it: `$DB_PATH` /
-  # `$PANEL_CONFIG` / `$CADDY_FILE` were string-substituted, and any stray `$`,
-  # backtick or `\` in the JS was at the mercy of bash quoting. On the live
-  # server this silently produced a node program that exited 0 *without* writing
-  # the new Caddyfile (the `[Caddyfile] rebuilt with N user(s)` line never
-  # appeared in --repair output), yet the subsequent `caddy validate` happily
-  # validated the STALE file в†’ false "Caddyfile rebuilt вњ“". Running the exact
-  # same logic from a real .js file (paths passed via process.env, no bash
-  # interpolation) wrote the correct Bug 83 Caddyfile immediately.
-  #
-  # Fix: write the script with a QUOTED heredoc (<<'NODE_EOF' вЂ” no expansion),
-  # pass every path through the environment, and `node "$rebuild_js"`. This
-  # removes all bash-quoting hazards and makes a real failure exit non-zero
-  # (caught below) instead of silently no-op'ing.
-  # Bug 86b: node resolves `require('better-sqlite3')` relative to the SCRIPT
-  # FILE's directory, not the cwd. A /tmp/*.js would look in /tmp/node_modules
-  # and fail (reintroducing the Bug 82 "Cannot find module" problem). Write the
-  # temp script INTO $PANEL_DIR so the panel's node_modules are on the lookup path.
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
   local rebuild_js; rebuild_js=$(mktemp "${PANEL_DIR}/.rebuild-caddy.XXXXXX.js")
   cat > "$rebuild_js" <<'NODE_EOF'
 const Database = require('better-sqlite3');
@@ -380,15 +380,15 @@ const naiveUsers = db.prepare('SELECT username, password, protocols FROM users')
     catch { return true; }
   })
   .map(u => ({ username: u.username, password: u.password || '' }))
-  // Bug 67: skip users with no plaintext password вЂ” empty password produces
+  // Bug 67: skip users with no plaintext password - empty password produces
   // "basic_auth user " (trailing space) which Caddy rejects as invalid syntax
   .filter(u => u.password.trim() !== '');
 
 const probeSecret = cfg.probeSecret ||
   (() => { try { return fs.readFileSync(CADDY_CFGDIR + '/probe_secret', 'utf8').trim(); } catch { return ''; } })();
-// Bug 81: probe_resistance mode вЂ” derive from probeSecret when unset.
+// Bug 81: probe_resistance mode - derive from probeSecret when unset.
 let probeMode = (cfg.probeMode || '').trim().toLowerCase();
-if (!probeMode) probeMode = probeSecret ? 'secret' : 'bare';
+if (!probeMode) probeMode = probeSecret -> 'secret' : 'bare';
 
 // Bug 26: use shared template for consistency with install.sh
 let content;
@@ -406,7 +406,7 @@ if (fs.existsSync(TEMPLATE_JS)) {
     logFile:     '/var/log/caddy-naive/access.log',
     authAuditLogPath: cfg.authAuditLogPath || '/var/log/caddy-naive/auth-audit.log',
     trafficAuditLogPath: cfg.trafficAuditLogPath || '/var/log/caddy-naive/traffic-audit.log',
-    upstream:    (cfg.cascadeEnabled && cfg.cascadeNaiveUpstream) ? cfg.cascadeNaiveUpstream : ''
+    upstream:    (cfg.cascadeEnabled && cfg.cascadeNaiveUpstream) -> cfg.cascadeNaiveUpstream : ''
   }, naiveUsers);
 } else {
   // Fallback (template not available): emit correct Bug 83 syntax directly
@@ -423,12 +423,12 @@ if (fs.existsSync(TEMPLATE_JS)) {
   else if (probeMode === 'secret' && probeSecret) probeLine = '\n    probe_resistance ' + probeSecret;
   else probeLine = '\n    probe_resistance';
   const authAuditLogPath = (cfg.authAuditLogPath || '').trim();
-  const authAuditLogLine = authAuditLogPath ? '\n    auth_audit_log ' + authAuditLogPath : '';
+  const authAuditLogLine = authAuditLogPath -> '\n    auth_audit_log ' + authAuditLogPath : '';
   const trafficAuditLogPath = (cfg.trafficAuditLogPath || '').trim();
-  const trafficAuditLogLine = trafficAuditLogPath ? '\n    traffic_audit_log ' + trafficAuditLogPath : '';
+  const trafficAuditLogLine = trafficAuditLogPath -> '\n    traffic_audit_log ' + trafficAuditLogPath : '';
   const staticSite = cfg.staticSite || {};
   const siteRoot = staticSite.enabled === true
-    ? ((staticSite.root || '').trim() || ('/var/www/' + (cfg.domain || 'localhost') + '/dist'))
+    -> ((staticSite.root || '').trim() || ('/var/www/' + (cfg.domain || 'localhost') + '/dist'))
     : (cfg.fakeSiteDir || FAKE_SITE);
   content = [
     '{',
@@ -475,12 +475,12 @@ if (fs.existsSync(TEMPLATE_JS)) {
 const tmp = CADDY_FILE + '.new';
 fs.writeFileSync(tmp, content, { mode: 0o640 });
 fs.renameSync(tmp, CADDY_FILE);
-console.log('[Caddyfile] rebuilt with ' + naiveUsers.length + ' user(s) в†’ ' + CADDY_FILE);
+console.log('[Caddyfile] rebuilt with ' + naiveUsers.length + ' user(s) -> ' + CADDY_FILE);
 db.close();
 NODE_EOF
 
-  # Bug 82: run node from the panel dir so it can resolve better-sqlite3 and the
-  # other node_modules (they live under $PANEL_DIR, not the script's cwd).
+#
+#
   if ! ( cd "$PANEL_DIR" && \
          RB_DB_PATH="$DB_PATH" \
          RB_PANEL_CONFIG="$PANEL_CONFIG" \
@@ -490,25 +490,25 @@ NODE_EOF
          RB_FAKE_SITE="$FAKE_SITE_DIR" \
          node "$rebuild_js" ); then
     rm -f "$rebuild_js"
-    log_warn "Node Caddyfile rebuild failed вЂ” Caddyfile will be rebuilt on next agent operation"
+    log_warn "Node Caddyfile rebuild failed - Caddyfile will be rebuilt on next agent operation"
     return 1
   fi
   rm -f "$rebuild_js"
 
-  # Bug 39: validate after rebuild so --repair fails loudly if template is wrong
+#
   local caddy_bin; caddy_bin=$(jq -r '.caddyBin // "/usr/local/bin/caddy-naive"' "$PANEL_CONFIG" 2>/dev/null || echo '/usr/local/bin/caddy-naive')
   if [[ -x "$caddy_bin" ]]; then
     if "$caddy_bin" validate --config "$CADDY_FILE" --adapter caddyfile &>/dev/null; then
-      log_info "Caddyfile validated вњ“"
+      log_info "Caddyfile validated OK"
     else
       log_error "Caddyfile validation FAILED after rebuild:"
       "$caddy_bin" validate --config "$CADDY_FILE" --adapter caddyfile 2>&1 | head -20 || true
       return 1
     fi
   fi
-  # Bug 79: ensure the caddy user can actually read the freshly-written file
+#
   fix_caddy_perms
-  log_info "Caddyfile rebuilt вњ“"
+  log_info "Caddyfile rebuilt OK"
 }
 
 ensure_mita_state_permissions() {
@@ -556,12 +556,12 @@ ensure_mita_state_permissions() {
   return 0
 }
 
-# в”Ђв”Ђ v1.2.3: Rebuild mita-state.json from SQLite DB в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# v1.2.3: Rebuild mita-state.json from SQLite DB
 rebuild_mita_state_direct() {
   log_step "Rebuilding mita-state.json from database"
-  [[ ! -f "$DB_PATH" ]] && { log_warn "DB not found вЂ” skipping mita state rebuild"; return; }
+  [[ ! -f "$DB_PATH" ]] && { log_warn "DB not found - skipping mita state rebuild"; return; }
 
-  # Bug 82: run node from the panel dir so better-sqlite3 resolves correctly.
+#
   ( cd "$PANEL_DIR" && node -e "
     const Database = require('better-sqlite3');
     const fs       = require('fs');
@@ -602,14 +602,14 @@ rebuild_mita_state_direct() {
     return 1
   }
   ensure_mita_state_permissions || true
-  log_info "mita-state.json rebuilt вњ“"
+  log_info "mita-state.json rebuilt OK"
 }
 
-# в”Ђв”Ђ v1.2.3: Ensure caddy-naive.service exists в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# v1.2.3: Ensure caddy-naive.service exists
 ensure_caddy_service() {
   if [[ ! -f /etc/systemd/system/caddy-naive.service ]]; then
     log_step "Creating caddy-naive.service"
-    # Bug 37: run as unprivileged caddy user
+#
     id caddy &>/dev/null || useradd --system --no-create-home --shell /usr/sbin/nologin caddy 2>/dev/null || true
     cat > /etc/systemd/system/caddy-naive.service <<SVCCADDY
 [Unit]
@@ -641,10 +641,10 @@ WantedBy=multi-user.target
 SVCCADDY
     systemctl daemon-reload
     systemctl enable caddy-naive 2>/dev/null || true
-    log_info "caddy-naive.service created вњ“"
+    log_info "caddy-naive.service created OK"
   fi
 
-  # Remove legacy naive.service if present (migration from v1.2.x)
+#
   if [[ -f /etc/systemd/system/naive.service ]]; then
     systemctl stop    naive 2>/dev/null || true
     systemctl disable naive 2>/dev/null || true
@@ -653,24 +653,24 @@ SVCCADDY
   fi
 }
 
-# в”Ђв”Ђ Bug 79: fix caddy-naive config permissions в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
-#   caddy-naive runs as User=caddy and fails to start with
-#     "reading config from file: open /etc/caddy-naive/Caddyfile: permission denied"
-#   when the config dir lacks group-execute (traverse) for the caddy group.
-#   The Caddyfile is written by root (mode 640, owner root:root); the caddy user
-#   then cannot enter the dir / read the file. Own dir as root:caddy, set dirs
-#   750 (group can traverse) and files 640 (group can read).
+# Bug 79: fix caddy-naive config permissions
+# caddy-naive runs as User=caddy and fails to start with
+# "reading config from file: open /etc/caddy-naive/Caddyfile: permission denied"
+# when the config dir lacks group-execute (traverse) for the caddy group.
+# The Caddyfile is written by root (mode 640, owner root:root); the caddy user
+# then cannot enter the dir / read the file. Own dir as root:caddy, set dirs
+# 750 (group can traverse) and files 640 (group can read).
 fix_caddy_perms() {
   id caddy &>/dev/null || return 0
   [[ -d "$CADDY_CONFIG_DIR" ]] || return 0
   chown -R root:caddy "$CADDY_CONFIG_DIR" 2>/dev/null || true
-  # Order matters: make the top dir traversable FIRST, otherwise `find` cannot
-  # descend into a 640 dir to chmod the files inside it.
+#
+#
   chmod 750 "$CADDY_CONFIG_DIR" 2>/dev/null || true
   find "$CADDY_CONFIG_DIR" -type d -exec chmod 750 {} + 2>/dev/null || true
   find "$CADDY_CONFIG_DIR" -type f -exec chmod 640 {} + 2>/dev/null || true
   [[ -f "$CADDY_FILE" ]] && chmod 640 "$CADDY_FILE" 2>/dev/null || true
-  # caddy also needs its data/log dirs owned correctly
+#
   mkdir -p /var/log/caddy-naive /var/lib/caddy 2>/dev/null || true
   chown -R caddy:caddy /var/log/caddy-naive /var/lib/caddy 2>/dev/null || true
   touch /var/log/caddy-naive/auth-audit.log 2>/dev/null || true
@@ -679,10 +679,10 @@ fix_caddy_perms() {
   chown caddy:caddy /var/log/caddy-naive/traffic-audit.log 2>/dev/null || true
   chmod 600 /var/log/caddy-naive/auth-audit.log 2>/dev/null || true
   chmod 600 /var/log/caddy-naive/traffic-audit.log 2>/dev/null || true
-  log_info "caddy-naive config permissions fixed (dir 750, files 640, owner root:caddy) вњ“"
+  log_info "caddy-naive config permissions fixed (dir 750, files 640, owner root:caddy) OK"
 }
 
-# в”Ђв”Ђ Caddy-forwardproxy-naive binary в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# Caddy-forwardproxy-naive binary
 ensure_xcaddy() {
   if ! command -v git &>/dev/null || ! command -v go &>/dev/null || ! command -v strings &>/dev/null; then
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git golang-go build-essential ca-certificates binutils
@@ -714,13 +714,13 @@ CADDYTEST
   fi
   local ok=true
   if echo "$adapt_out" | grep -q '"auth_audit_log"'; then
-    log_info "Vetka Caddy supports auth_audit_log вњ“"
+    log_info "Vetka Caddy supports auth_audit_log OK"
   else
     log_error "Vetka Caddy adapt output does not contain auth_audit_log"
     ok=false
   fi
   if echo "$adapt_out" | grep -q '"traffic_audit_log"'; then
-    log_info "Vetka Caddy supports traffic_audit_log вњ“"
+    log_info "Vetka Caddy supports traffic_audit_log OK"
   else
     log_error "Vetka Caddy adapt output does not contain traffic_audit_log"
     ok=false
@@ -767,7 +767,7 @@ update_vetka_caddy_naive() {
   fix_caddy_perms
   systemctl reset-failed caddy-naive 2>/dev/null || true
   systemctl start caddy-naive 2>/dev/null || true
-  log_info "Vetka caddy-naive updated вњ“"
+  log_info "Vetka caddy-naive updated OK"
 }
 
 update_upstream_caddy_naive() {
@@ -775,7 +775,7 @@ update_upstream_caddy_naive() {
   detect_arch
 
   if [[ "$ARCH" != "amd64" ]]; then
-    log_warn "caddy-forwardproxy-naive is amd64-only (current arch: $ARCH) вЂ” skipping Caddy update"
+    log_warn "caddy-forwardproxy-naive is amd64-only (current arch: $ARCH) - skipping Caddy update"
     return
   fi
 
@@ -799,7 +799,7 @@ update_upstream_caddy_naive() {
   fi
 
   if [[ -z "$asset_url" ]]; then
-    log_warn "GitHub API unavailable вЂ” using fallback URL (v2.10.0)"
+    log_warn "GitHub API unavailable - using fallback URL (v2.10.0)"
     asset_url="$CADDY_NAIVE_FALLBACK_URL"
     remote_tag="v2.10.0-naive"
   fi
@@ -810,7 +810,7 @@ update_upstream_caddy_naive() {
   log_info "Current: $current_ver  |  Latest: $remote_tag"
 
   if ! $FORCE && echo "$current_ver" | grep -qF "${remote_tag#v}"; then
-    log_info "caddy-forwardproxy-naive already up-to-date вњ“"
+    log_info "caddy-forwardproxy-naive already up-to-date OK"
     return
   fi
 
@@ -819,11 +819,11 @@ update_upstream_caddy_naive() {
   local tmp_dir; tmp_dir=$(mktemp -d)
   log_info "Downloading: $asset_url"
   wget -q --show-progress --connect-timeout 30 -O "$tmp_dir/caddy.tar.xz" "$asset_url" || \
-    { log_warn "Download failed вЂ” skipping Caddy update"; rm -rf "$tmp_dir"; return; }
+    { log_warn "Download failed - skipping Caddy update"; rm -rf "$tmp_dir"; return; }
 
   cd "$tmp_dir"
   tar -xJf caddy.tar.xz 2>/dev/null || tar -xf caddy.tar.xz 2>/dev/null || \
-    { log_warn "Extract failed вЂ” skipping"; rm -rf "$tmp_dir"; cd /; return; }
+    { log_warn "Extract failed - skipping"; rm -rf "$tmp_dir"; cd /; return; }
 
   local caddy_found
   caddy_found=$(find "$tmp_dir" -maxdepth 3 -type f \
@@ -836,34 +836,34 @@ update_upstream_caddy_naive() {
     if command -v setcap &>/dev/null; then
       setcap 'cap_net_bind_service=+ep' "$CADDY_BIN" 2>/dev/null || true
     fi
-    # Bug 79b: fix config perms BEFORE starting, and clear any prior failure
-    # storm вЂ” otherwise a broken-perms install hits "Start request repeated too
-    # quickly" and never recovers even after the perms are fixed later.
+#
+#
+#
     fix_caddy_perms
     systemctl reset-failed caddy-naive 2>/dev/null || true
     systemctl start caddy-naive 2>/dev/null || true
-    log_info "caddy-naive updated to $remote_tag вњ“"
+    log_info "caddy-naive updated to $remote_tag OK"
   else
-    log_warn "caddy binary not found in archive вЂ” skipping"
+    log_warn "caddy binary not found in archive - skipping"
   fi
 
   rm -rf "$tmp_dir"; cd /
 
-  # Update version file
+#
   local new_ver; new_ver=$("$CADDY_BIN" version 2>/dev/null | head -1 || echo "$remote_tag")
   if [[ -f "$VERSION_FILE" ]]; then
     sed -i "s|^caddy_version=.*|caddy_version=${new_ver}|" "$VERSION_FILE" 2>/dev/null || \
       echo "caddy_version=${new_ver}" >> "$VERSION_FILE"
   fi
 
-  # Remove legacy naive binary if still present
+#
   if [[ -f "$LEGACY_NAIVE_BIN" ]]; then
     rm -f "$LEGACY_NAIVE_BIN"
-    log_info "Legacy naive binary removed вњ“"
+    log_info "Legacy naive binary removed OK"
   fi
 }
 
-# в”Ђв”Ђ Update Mieru в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# Update Mieru
 update_caddy_naive() {
   case "${CADDY_MODE:-vetka}" in
     vetka) update_vetka_caddy_naive ;;
@@ -894,7 +894,7 @@ MITADROPIN
 
 apply_mita_config_bootstrap() {
   if ! has_mieru_users; then
-    log_warn "Mieru РЅРµ РјРѕР¶РµС‚ Р±С‹С‚СЊ Р·Р°РїСѓС‰РµРЅ: РЅРµС‚ Р°РєС‚РёРІРЅС‹С… Mieru-РїРѕР»СЊР·РѕРІР°С‚РµР»РµР№"
+    log_warn "Mieru cannot be started: no active Mieru users configured"
     systemctl stop mita 2>/dev/null || true
     systemctl reset-failed mita 2>/dev/null || true
     return 2
@@ -934,7 +934,7 @@ update_mieru() {
   log_info "Current: $current_ver  |  Latest: $remote_tag"
 
   if ! $FORCE && [[ "$current_ver" == "$remote_tag" ]]; then
-    log_info "Mieru already up-to-date вњ“"
+    log_info "Mieru already up-to-date OK"
     return
   fi
 
@@ -961,7 +961,7 @@ POLICYRC
   local install_ok=true
   dpkg -i "$deb" 2>/dev/null || apt-get install -f -y || install_ok=false
   if $policy_rc_created; then rm -f /usr/sbin/policy-rc.d; fi
-  $install_ok || { log_warn "Mieru package install failed"; rm -f "$deb"; return; }
+  $install_ok || { log_warn "Mieru cannot be started: no active Mieru users configured"; rm -f "$deb"; return; }
   rm -f "$deb"
   if has_mieru_users; then
     systemctl start mita 2>/dev/null || true
@@ -970,15 +970,15 @@ POLICYRC
     systemctl reset-failed mita 2>/dev/null || true
     log_info "mita has no users yet; leaving service stopped/idle"
   fi
-  log_info "Mieru updated to $remote_tag вњ“"
+  log_info "Mieru updated to $remote_tag OK"
 }
 
-# в”Ђв”Ђ Update panel в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# Update panel
 # Bug 76: this step previously could be skipped or die silently:
-#   - under `set -e`, a failing `npm install` aborted the whole script with no
-#     clear message and left a partial copy;
-#   - the version bump happened even on a partial run, so the next `-y` run saw
-#     "already up-to-date" and never re-copied the panel files.
+# - under `set -e`, a failing `npm install` aborted the whole script with no
+# clear message and left a partial copy;
+# - the version bump happened even on a partial run, so the next `-y` run saw
+# "already up-to-date" and never re-copied the panel files.
 # Now: clone (or fall back to the local checkout), copy ALL panel files, run
 # npm install non-fatally, restart PM2, and verify a known sentinel landed.
 update_panel() {
@@ -991,33 +991,33 @@ update_panel() {
     src="$tmp/panel"
     log_info "Fetched latest panel from $PANEL_REPO_URL"
   elif [[ -d "$(pwd)/panel" ]]; then
-    # Fallback: use the local checkout the operator already `git pull`-ed.
+#
     src="$(pwd)/panel"
-    log_warn "git clone failed вЂ” using local checkout at $src"
+    log_warn "git clone failed - using local checkout at $src"
   else
-    log_warn "No panel source available (clone failed, no local ./panel) вЂ” skipping"
+    log_warn "No panel source available (clone failed, no local ./panel) - skipping"
     rm -rf "$tmp"; return
   fi
 
   pm2 stop vetka-node-agent 2>/dev/null || true
 
   mkdir -p "$PANEL_DIR"
-  # Copy everything including dotfiles; cp -a preserves structure.
+#
   cp -a "$src/." "$PANEL_DIR/"
 
-  # npm install must NOT be fatal вЂ” keep going even on a transient failure.
+#
   ( cd "$PANEL_DIR" && npm install --omit=dev --silent ) \
     || ( cd "$PANEL_DIR" && npm install --production --silent ) \
-    || log_warn "npm install reported a problem вЂ” continuing (deps may already be present)"
+    || log_warn "npm install reported a problem - continuing (deps may already be present)"
 
   pm2 restart vetka-node-agent --update-env 2>/dev/null \
     || pm2 start "$PANEL_DIR/server/index.js" --name vetka-node-agent --time
 
-  # Bug 76: verify the new code actually landed (sentinel added in v1.2.6 P3).
+#
   if grep -q "downloadNote" "$PANEL_DIR/public/index.html" 2>/dev/null; then
-    log_info "Vetka Node Agent updated вњ“ (v1.2.6 markers present)"
+    log_info "Vetka Node Agent updated OK (v1.2.6 markers present)"
   else
-    log_warn "Agent files copied but v1.2.6 marker not found вЂ” check $PANEL_DIR"
+    log_warn "Agent files copied but v1.2.6 marker not found - check $PANEL_DIR"
   fi
   grep -q "ip-history" "$PANEL_DIR/server/index.js" || die "Installed stale panel: ip-history endpoint not found"
   grep -q "trafficAuditLogPath" "$PANEL_DIR/server/index.js" || die "Installed stale panel: trafficAuditLogPath not found"
@@ -1057,7 +1057,7 @@ update_static_site() {
   bash "$helper" deploy
 }
 
-# в”Ђв”Ђ Smoke tests в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# Smoke tests
 smoke_test() {
   log_step "Running smoke tests"
   sleep 3
@@ -1066,65 +1066,65 @@ smoke_test() {
 
   check_svc() {
     if systemctl is-active --quiet "$1"; then
-      echo -e "  ${GREEN}вњ“${NC} $1 active"; (( pass++ ))
+      echo -e "  ${GREEN}OK${NC} $1 active"; (( pass++ ))
     else
-      echo -e "  ${RED}вњ—${NC} $1 INACTIVE"; (( fail++ ))
+      echo -e "  ${RED}FAIL${NC} $1 INACTIVE"; (( fail++ ))
     fi
   }
 
-  # v1.2.3: check caddy-naive (not legacy naive)
+#
   check_svc caddy-naive
   if systemctl is-active --quiet mita; then
-    echo -e "  ${GREEN}вњ“${NC} mita active"; (( pass++ ))
+    echo -e "  ${GREEN}OK${NC} mita active"; (( pass++ ))
   elif has_mieru_users; then
-    echo -e "  ${RED}вњ—${NC} mita INACTIVE"; (( fail++ ))
+    echo -e "  ${RED}FAIL${NC} mita INACTIVE"; (( fail++ ))
   else
-    echo -e "  ${GREEN}вњ“${NC} mita idle OK, no Mieru users configured"; (( pass++ ))
+    echo -e "  ${GREEN}OK${NC} mita idle OK, no Mieru users configured"; (( pass++ ))
   fi
 
-  # caddy-naive version check
+#
   if timeout 5 "$CADDY_BIN" version &>/dev/null 2>&1 || \
      timeout 5 "$CADDY_BIN" --version &>/dev/null 2>&1; then
-    echo -e "  ${GREEN}вњ“${NC} caddy-naive version OK"; (( pass++ ))
+    echo -e "  ${GREEN}OK${NC} caddy-naive version OK"; (( pass++ ))
   else
-    echo -e "  ${RED}вњ—${NC} caddy-naive version FAILED"; (( fail++ ))
+    echo -e "  ${RED}FAIL${NC} caddy-naive version FAILED"; (( fail++ ))
   fi
 
-  # Caddyfile present
+#
   if [[ -f "$CADDY_FILE" ]]; then
-    echo -e "  ${GREEN}вњ“${NC} Caddyfile present"; (( pass++ ))
+    echo -e "  ${GREEN}OK${NC} Caddyfile present"; (( pass++ ))
   else
-    echo -e "  ${RED}вњ—${NC} Caddyfile MISSING"; (( fail++ ))
+    echo -e "  ${RED}FAIL${NC} Caddyfile MISSING"; (( fail++ ))
   fi
 
-  # Static/fake site present
+#
   local site_label="legacy fake-site/index.html"
   if [[ -f "$PANEL_CONFIG" ]] && command -v jq &>/dev/null && \
      [[ "$(jq -r '.staticSite.enabled // false' "$PANEL_CONFIG" 2>/dev/null)" == "true" ]]; then
     site_label="static-site/index.html"
   fi
   if [[ -f "${FAKE_SITE_DIR}/index.html" ]]; then
-    echo -e "  ${GREEN}вњ“${NC} ${site_label} present"; (( pass++ ))
+    echo -e "  ${GREEN}OK${NC} ${site_label} present"; (( pass++ ))
   else
-    echo -e "  ${YELLOW}вљ ${NC}  ${site_label} missing (non-critical)";
+    echo -e "  ${YELLOW}WARN${NC}  ${site_label} missing (non-critical)";
   fi
 
-  # Panel HTTP
+#
   local node_secret=""
   if [[ -f "$PANEL_CONFIG" ]] && command -v jq &>/dev/null; then
     node_secret="$(jq -r '.nodeSecret // empty' "$PANEL_CONFIG" 2>/dev/null || true)"
   fi
   if [[ -n "$node_secret" ]] && curl -sf -H "Authorization: Bearer ${node_secret}" http://127.0.0.1:${NODE_PORT}/health -o /dev/null 2>/dev/null; then
-    echo -e "  ${GREEN}вњ“${NC} Node Agent health OK"; (( pass++ ))
+    echo -e "  ${GREEN}OK${NC} Node Agent health OK"; (( pass++ ))
   else
-    echo -e "  ${YELLOW}вљ ${NC}  Node Agent health not responding"
+    echo -e "  ${YELLOW}WARN${NC}  Node Agent health not responding"
   fi
 
-  # mita status
+#
   if mita status 2>/dev/null | grep -qi "running\|active"; then
-    echo -e "  ${GREEN}вњ“${NC} mita reports running"; (( pass++ ))
+    echo -e "  ${GREEN}OK${NC} mita reports running"; (( pass++ ))
   else
-    echo -e "  ${YELLOW}вљ ${NC}  mita status unclear"
+    echo -e "  ${YELLOW}WARN${NC}  mita status unclear"
   fi
 
   echo ""
@@ -1132,13 +1132,15 @@ smoke_test() {
   return $fail
 }
 
-# в”Ђв”Ђ --status mode в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# --status mode
 do_status() {
-  echo -e "\n${BOLD}в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ${NC}"
-  echo -e "${BOLD}   Vetka Node Agent v${TARGET_VERSION} вЂ” Status Report${NC}"
-  echo -e "${BOLD}в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ${NC}\n"
+  echo ""
+  echo -e "${BOLD}========================================${NC}"
+  echo -e "${BOLD}  Vetka Node Agent v${TARGET_VERSION} - Status Report${NC}"
+  echo -e "${BOLD}========================================${NC}"
+  echo ""
 
-  # Versions
+#
   echo -e "${BOLD}Versions:${NC}"
   echo "  Agent:          $(get_current_version) (target: $TARGET_VERSION)"
   echo "  caddy-naive:    $("$CADDY_BIN" version 2>/dev/null | head -1 || echo 'not installed')"
@@ -1147,33 +1149,33 @@ do_status() {
   echo "  PM2:            $(pm2 --version 2>/dev/null || echo 'not installed')"
   echo ""
 
-  # Version file
+#
   if [[ -f "$VERSION_FILE" ]]; then
     echo -e "${BOLD}Version file ($VERSION_FILE):${NC}"
     sed 's/^/  /' "$VERSION_FILE"
     echo ""
   fi
 
-  # Services
+#
   echo -e "${BOLD}Services:${NC}"
   for svc in caddy-naive mita; do
     local status; status=$(systemctl is-active "$svc" 2>/dev/null || echo "unknown")
     if [[ "$status" == "active" ]]; then
-      echo -e "  ${GREEN}в—Џ${NC} $svc вЂ” active"
+      echo -e "  ${GREEN}-${NC} $svc - active"
     else
-      echo -e "  ${RED}в—Џ${NC} $svc вЂ” $status"
+      echo -e "  ${RED}-${NC} $svc - $status"
     fi
   done
-  # Legacy naive check
+#
   if systemctl is-active naive &>/dev/null 2>&1; then
-    echo -e "  ${YELLOW}в—Џ${NC} naive вЂ” active (LEGACY вЂ” should have been removed in v1.2.3 migration)"
+    echo -e "  ${YELLOW}-${NC} naive - active (LEGACY - should have been removed in v1.2.3 migration)"
   fi
   local pm2_status; pm2_status=$(pm2 status vetka-node-agent --no-color 2>/dev/null \
     | grep vetka-node-agent | awk '{print $10}' || echo "unknown")
-  echo "  в—Џ PM2 agent     вЂ” $pm2_status"
+  echo "  - PM2 agent     - $pm2_status"
   echo ""
 
-  # Configuration
+#
   echo -e "${BOLD}Configuration:${NC}"
   if [[ -f "$PANEL_CONFIG" ]]; then
     jq '{ domain, serverIp, naivePort, mieruPortStart, mieruPortEnd,
@@ -1185,34 +1187,34 @@ do_status() {
   fi
   echo ""
 
-  # Caddyfile
+#
   echo -e "${BOLD}Caddyfile (${CADDY_FILE}):${NC}"
   if [[ -f "$CADDY_FILE" ]]; then
-    # Bug 23: directive is now "basic_auth" (underscore), not "basicauth"
+#
     local user_count; user_count=$(grep -cE '^\s*basic_auth\s+\S+\s+\S+' "$CADDY_FILE" 2>/dev/null || echo 0)
-    echo "  Present вЂ” $user_count basic_auth user(s)"
+    echo "  Present - $user_count basic_auth user(s)"
     grep -E 'probe_resistance|tls\s' "$CADDY_FILE" 2>/dev/null | head -5 | sed 's/^/  /' || true
   else
     echo "  Caddyfile NOT FOUND"
   fi
   echo ""
 
-  # Fake site
+#
   echo -e "${BOLD}Fake site ($FAKE_SITE_DIR):${NC}"
   if [[ -f "${FAKE_SITE_DIR}/index.html" ]]; then
-    echo "  index.html present вњ“"
+    echo "  index.html present OK"
   else
     echo "  MISSING"
   fi
   echo ""
 
-  # Ports
+#
   echo -e "${BOLD}Listening ports:${NC}"
   ss -tlnup 2>/dev/null | grep -E ":(443|80|8080|3000|20[0-9]{2})" | \
     awk '{print "  "$5}' || true
   echo ""
 
-  # Backups
+#
   echo -e "${BOLD}Recent backups:${NC}"
   if [[ -d "$BACKUP_DIR" ]]; then
     ls -1dt "$BACKUP_DIR"/*/ 2>/dev/null | head -5 | while read -r d; do
@@ -1223,13 +1225,13 @@ do_status() {
   fi
   echo ""
 
-  # Time sync
+#
   echo -e "${BOLD}Time:${NC}"
   timedatectl status 2>/dev/null | grep -E "Local time|synchronized" | sed 's/^/  /' || true
   echo ""
 }
 
-# в”Ђв”Ђ --expose mode в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# --expose mode
 do_expose() {
   log_step "Exposing legacy local UI"
   [[ -z "$EXPOSE_DOMAIN" ]] && die "--expose requires a domain argument"
@@ -1243,10 +1245,10 @@ do_expose() {
 
   ufw allow 8080/tcp comment "Vetka Node Agent legacy UI" 2>/dev/null || true
   pm2 restart vetka-node-agent 2>/dev/null || true
-  log_info "Legacy local UI accessible at http://$EXPOSE_DOMAIN:8080/ вњ“"
+  log_info "Legacy local UI accessible at http://$EXPOSE_DOMAIN:8080/ OK"
 }
 
-# в”Ђв”Ђ --ssh-only mode в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# --ssh-only mode
 do_ssh_only() {
   log_step "Switching local UI to private mode"
 
@@ -1259,7 +1261,7 @@ do_ssh_only() {
 
   ufw delete allow 8080/tcp 2>/dev/null || true
   pm2 restart vetka-node-agent 2>/dev/null || true
-  log_info "Local UI now private (127.0.0.1:${NODE_PORT}) вњ“"
+  log_info "Local UI now private (127.0.0.1:${NODE_PORT}) OK"
 
   local server_ip; server_ip=$(jq -r '.serverIp' "$PANEL_CONFIG")
   echo ""
@@ -1267,14 +1269,14 @@ do_ssh_only() {
   echo -e "  Then open:   ${CYAN}http://localhost:${NODE_PORT}/${NC}"
 }
 
-# в”Ђв”Ђ --repair mode в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# --repair mode
 # Rebuild Caddyfile + mita config from SQLite DB; no data loss.
 # v1.2.3: Calls /api/services/rebuild-all (falls back to direct DB rebuild).
 do_repair() {
-  log_step "Repair mode вЂ” rebuilding configs from SQLite database"
+  log_step "Repair mode - rebuilding configs from SQLite database"
 
   if ! $YES; then
-    read -rp "Rebuild Caddyfile and mita state from DB? [y/N]: " confirm
+    read -rp "Rebuild Caddyfile and mita state from DB-> [y/N]: " confirm
     [[ "${confirm^^}" != "Y" ]] && { log_info "Aborted."; exit 0; }
   fi
 
@@ -1282,13 +1284,13 @@ do_repair() {
 
   auto_backup >/dev/null
 
-  # Bug 81: migrate config (set probeMode='bare' for pre-Bug 81 installs) so the
-  # rebuilt Caddyfile matches the reference server's bare probe_resistance.
+#
+#
   migrate_config
   load_config
   ensure_mita_state_permissions || true
 
-  # Step 1: ensure static/fake site exists
+#
   if [[ ! -f "${FAKE_SITE_DIR}/index.html" ]]; then
     local static_site_enabled="false"
     if command -v jq &>/dev/null; then
@@ -1315,54 +1317,54 @@ do_repair() {
 </html>
 FAKEHTML
       chmod 644 "${FAKE_SITE_DIR}/index.html"
-      log_info "Fake site recreated вњ“"
+      log_info "Fake site recreated OK"
     fi
   fi
 
-  # Step 2: ensure caddy-naive.service exists
+#
   ensure_caddy_service
 
-  # Step 3: rebuild Caddyfile + mita state from DB
-  # Bug 84: ALWAYS rebuild directly from the on-disk caddyTemplate.js (the single
-  # source of truth that --update freshly copied into $PANEL_DIR). Previously
-  # --repair POSTed to /api/services/rebuild-all FIRST, which is rendered by the
-  # *running* PM2 agent process. If that process had not reloaded the new
-  # index.js yet (e.g. update_panel copied the files but the panel was still
-  # serving old in-memory code), the API regenerated the STALE Caddyfile format
-  # (route{} wrapper, domain-only listener) even though the on-disk template was
-  # already the new Bug 83 layout вЂ” and the direct fallback never ran because the
-  # API "succeeded". Going direct guarantees the rebuilt Caddyfile reflects the
-  # template on disk, independent of whatever code the panel happens to be running.
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
   rebuild_caddyfile_direct
   rebuild_mita_state_direct
 
-  # Step 4: apply mita config
+#
   if [[ -f "$MITA_STATE_FILE" ]]; then
     local _mita_apply_rc=0
     apply_mita_config_bootstrap || _mita_apply_rc=$?
     if [[ "$_mita_apply_rc" -eq 0 ]]; then
-      log_info "mita config applied вњ“"
+      log_info "mita config applied OK"
     elif [[ "$_mita_apply_rc" -ne 2 ]]; then
-      log_warn "mita apply returned non-zero вЂ” see command output above"
+      log_warn "mita apply returned non-zero - see command output above"
     fi
   fi
 
-  # Step 5: reload/restart services
+#
   systemctl daemon-reload
-  # Bug 79: make sure the caddy user can read its config before (re)starting
+#
   fix_caddy_perms
   systemctl reload caddy-naive 2>/dev/null || \
     systemctl restart caddy-naive 2>/dev/null && \
-    log_info "caddy-naive reloaded вњ“" || \
-    log_warn "caddy-naive reload failed вЂ” journalctl -u caddy-naive -n 20"
+    log_info "caddy-naive reloaded OK" || \
+    log_warn "caddy-naive reload failed - journalctl -u caddy-naive -n 20"
   if has_mieru_users; then
     local _mita_restart_out
     if _mita_restart_out=$(systemctl restart mita 2>&1); then
       [[ -n "$_mita_restart_out" ]] && log_info "systemctl restart mita output: $_mita_restart_out"
-      log_info "mita restarted вњ“"
+      log_info "mita restarted OK"
     else
       log_warn "mita restart failed: $_mita_restart_out"
-      log_warn "mita restart failed вЂ” journalctl -u mita -n 20"
+      log_warn "mita restart failed - journalctl -u mita -n 20"
     fi
   else
     systemctl stop mita 2>/dev/null || true
@@ -1371,11 +1373,11 @@ FAKEHTML
   fi
   pm2 restart vetka-node-agent 2>/dev/null || true
 
-  smoke_test || log_warn "Some smoke tests failed вЂ” check above"
-  log_info "Repair complete вњ“"
+  smoke_test || log_warn "Some smoke tests failed - check above"
+  log_info "Repair complete OK"
 }
 
-# в”Ђв”Ђ Main update flow в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# Main update flow
 do_update() {
   log_step "Updating Vetka Node Agent to v${TARGET_VERSION}"
   detect_arch
@@ -1386,80 +1388,80 @@ do_update() {
   if ! $FORCE && ! version_gt "$TARGET_VERSION" "$current"; then
     log_info "Version file already reports $current (target $TARGET_VERSION)."
     if $YES; then
-      # Bug 76: in non-interactive mode, re-sync the panel files anyway. The
-      # version file may have been bumped by an earlier *partial* run that never
-      # copied the new code, so "up-to-date" can be a lie. Re-copying is cheap
-      # and idempotent.
+#
+#
+#
+#
       log_info "Non-interactive (-y): re-syncing panel files to be safe."
     else
-      read -rp "Re-sync / force update anyway? [y/N]: " confirm
+      read -rp "Re-sync / force update anyway-> [y/N]: " confirm
       [[ "${confirm^^}" != "Y" ]] && { log_info "Nothing to do."; exit 0; }
     fi
   fi
 
   if ! $YES && ! $DRY_RUN; then
-    read -rp "Proceed with update? [Y/n]: " confirm
+    read -rp "Proceed with update-> [Y/n]: " confirm
     [[ "${confirm^^}" == "N" ]] && { log_info "Aborted."; exit 0; }
   fi
 
   auto_backup >/dev/null
 
-  # Bug 81: migrate config (set probeMode='bare' for pre-Bug 81 installs).
+#
   migrate_config
   load_config
 
-  # Update components
+#
   update_caddy_naive     # replaces update_naiveproxy() from v1.2.x
   update_mieru
   ensure_mita_state_permissions || true
   update_panel
   update_static_site
 
-  # Ensure service is present and legacy naive is gone
+#
   ensure_caddy_service
 
   $DRY_RUN && { log_info "[DRY-RUN] No changes were made."; return; }
 
-  # Bug 80/81: regenerate the Caddyfile from the (now-migrated) config + DB so the
-  # new `servers { protocols h1 h2 }` block and probeMode take effect on update.
-  # Older `do_update` only restarted caddy without re-rendering the config, so the
-  # stale Caddyfile kept the old probe_resistance secret and lacked the protocols
-  # block. rebuild_caddyfile_direct uses caddyTemplate.js (single source of truth).
-  rebuild_caddyfile_direct || log_warn "Caddyfile rebuild returned non-zero вЂ” check above"
+#
+#
+#
+#
+#
+  rebuild_caddyfile_direct || log_warn "Caddyfile rebuild returned non-zero - check above"
 
-  # Bug 79: fix caddy-naive config permissions and (re)start it. Older installs
-  # left the Caddyfile owned root:root (group caddy couldn't read it), so
-  # caddy-naive failed with "Caddyfile: permission denied". Fix perms, clear any
-  # failure storm (reset-failed), then restart so the fix actually takes hold.
+#
+#
+#
+#
   fix_caddy_perms
   systemctl reset-failed caddy-naive 2>/dev/null || true
-  systemctl restart caddy-naive 2>/dev/null && log_info "caddy-naive restarted вњ“" || \
-    log_warn "caddy-naive restart failed вЂ” journalctl -u caddy-naive -n 20"
+  systemctl restart caddy-naive 2>/dev/null && log_info "caddy-naive restarted OK" || \
+    log_warn "caddy-naive restart failed - journalctl -u caddy-naive -n 20"
 
-  # Update version file
+#
   if [[ -f "$VERSION_FILE" ]]; then
     sed -i "s|^panel_version=.*|panel_version=${TARGET_VERSION}|" "$VERSION_FILE" 2>/dev/null || \
       echo "panel_version=${TARGET_VERSION}" >> "$VERSION_FILE"
   else
     echo "panel_version=${TARGET_VERSION}" > "$VERSION_FILE"
   fi
-  log_info "Version file updated to $TARGET_VERSION вњ“"
+  log_info "Version file updated to $TARGET_VERSION OK"
 
-  # Remove legacy naive paths if present (migration cleanup)
+#
   if [[ -f "$LEGACY_NAIVE_BIN" ]]; then
     rm -f "$LEGACY_NAIVE_BIN"
-    log_info "Legacy naive binary removed вњ“"
+    log_info "Legacy naive binary removed OK"
   fi
   if [[ -d "$LEGACY_NAIVE_CONFIG_DIR" ]]; then
     rm -rf "$LEGACY_NAIVE_CONFIG_DIR"
-    log_info "Legacy /etc/naive directory removed вњ“"
+    log_info "Legacy /etc/naive directory removed OK"
   fi
 
-  smoke_test && log_info "Update completed successfully вњ“" || \
-    log_warn "Update completed with warnings вЂ” check services"
+  smoke_test && log_info "Update completed successfully OK" || \
+    log_warn "Update completed with warnings - check services"
 }
 
-# в”Ђв”Ђ Entry point в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# Entry point
 main() {
   parse_args "$@"
   check_root

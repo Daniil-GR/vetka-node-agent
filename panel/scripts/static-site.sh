@@ -195,8 +195,8 @@ resolve_deploy_url() {
       echo "Current static site URL:" >&2
       echo "$current_url" >&2
       local answer
-      read -rp "Use this URL? [Y/n]: " answer
-      if [[ ! "${answer:-Y}" =~ ^([Nn]|Рќ|РЅ)$ ]]; then
+      read -rp "Use this URL-> [Y/n]: " answer
+      if [[ ! "${answer:-Y}" =~ ^([Nn]||)$ ]]; then
         echo "$current_url"
         return 0
       fi

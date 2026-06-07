@@ -1,47 +1,35 @@
 # Vetka Node Agent
 
-`vetka-node-agent` - сервисный агент для резервных нод Vetka VPN.
+`vetka-node-agent` is the service-side executor for Vetka VPN reserve nodes.
 
-Этот репозиторий не является Backend Panel, Telegram Bot или основной базой пользователей. Source of truth находится во внешнем Backend Panel API и PostgreSQL. Node Agent только принимает desired state, применяет локальный конфиг выбранного протокола и отдает health/status/stats.
+This repository is not the Backend Panel, Telegram Bot, or primary user database. The external Backend Panel API and PostgreSQL are the source of truth. The Node Agent only receives desired state, applies local protocol configuration, and exposes health/status/stats.
 
 ```text
 Backend Panel / PostgreSQL = source of truth
 Node Agent = executor that applies desired state
 ```
 
-## Роль агента
+## Terminal Compatibility
 
-- устанавливается на сервер ноды;
-- получает `NODE_ID`, `NODE_SECRET`, `PROTOCOL_TYPE`, `NODE_PORT` извне;
-- проверяет `Authorization: Bearer <NODE_SECRET>`;
-- принимает полный desired state через `POST /v1/sync`;
-- хранит только applied state/cache, а не бизнес-БД пользователей;
-- работает в режиме one-node-one-protocol: `naive` или `mieru`;
-- применяет конфиг Caddy/NaiveProxy или Mieru;
-- сохраняет managed static site;
-- сохраняет Naive `auth_audit_log` и `traffic_audit_log`.
+`install.sh`, `update.sh`, and `uninstall.sh` default to English/ASCII output so they remain readable over SSH from Windows PowerShell and terminals without a UTF-8 locale. If you want UTF-8 in Windows PowerShell before SSH, you can run:
 
-## Архитектура
-
-```text
-Bot / Admin / Panel UI
-        |
-Backend Panel API
-        |
-PostgreSQL
-        |
-Node Manager
-        |
-Node Agent API
-        |
-Protocol Driver: naive or mieru
-        |
-Caddy / NaiveProxy / Mieru service
+```powershell
+chcp 65001
 ```
 
-## Конфигурация
+## Agent Role
 
-Минимальные переменные окружения:
+- installed on a node server;
+- receives `NODE_ID`, `NODE_SECRET`, `PROTOCOL_TYPE`, and `NODE_PORT` from the environment or local config;
+- validates `Authorization: Bearer <NODE_SECRET>`;
+- accepts full desired state through `POST /v1/sync`;
+- stores only applied state/cache, not a business user database;
+- uses one-node-one-protocol: `naive` or `mieru`;
+- applies Caddy/NaiveProxy or Mieru config;
+- keeps the managed static site feature;
+- keeps Naive `auth_audit_log` and `traffic_audit_log`.
+
+## Runtime Config
 
 ```env
 NODE_ID=node-1
@@ -52,28 +40,26 @@ PROTOCOL_TYPE=naive
 BACKEND_ALLOWED_IPS=203.0.113.20
 ```
 
-Для Mieru:
+For Mieru:
 
 ```env
 PROTOCOL_TYPE=mieru
 ```
 
-`PROTOCOL_TYPE` может быть только `naive` или `mieru`. Одна нода применяет только один активный protocol driver, даже если на сервере технически установлены оба компонента.
+`PROTOCOL_TYPE` must be exactly `naive` or `mieru`. A node applies only the selected driver, even if both components are installed on the host.
 
-Служебный порт по умолчанию: `2222`. Он должен быть доступен только Backend Panel IP.
+The default service port is `2222`. It should be reachable only from the Backend Panel IP.
 
 ## API
 
-Служебные endpoint'ы агента, включая `GET /health`, требуют:
+`GET /health` may be used by local health checks. Service endpoints require:
 
 ```http
 Authorization: Bearer <NODE_SECRET>
 X-Node-Id: <NODE_ID>
 ```
 
-Если `X-Node-Id` передан и не совпадает с локальным `NODE_ID`, агент вернет `403`.
-
-Основные endpoint'ы:
+If `X-Node-Id` is present and does not match local `NODE_ID`, the agent returns `403`.
 
 ```http
 GET  /health
@@ -83,73 +69,19 @@ POST /v1/reload
 GET  /v1/stats
 ```
 
-Старые `/internal/...` маршруты оставлены как deprecated compatibility/debug surface. Новый Backend должен использовать `/v1/sync`.
-
-## Manual Agent Smoke Test
-
-Use this before implementing Backend Panel to verify the Node Agent contract on a real node. The test talks only to the agent API and does not require Backend Panel, PostgreSQL, or a bot.
-
-Requirements on the machine running the test:
-
-```bash
-curl
-jq
-bash
-```
-
-Run:
-
-```bash
-NODE_AGENT_URL=http://127.0.0.1:2222 \
-NODE_ID=alps-naive-1 \
-NODE_SECRET='<NODE_SECRET>' \
-PROTOCOL_TYPE=naive \
-bash tests/manual-agent-smoke.sh
-```
-
-For Mieru:
-
-```bash
-NODE_AGENT_URL=http://127.0.0.1:2222 \
-NODE_ID=alps-mieru-1 \
-NODE_SECRET='<NODE_SECRET>' \
-PROTOCOL_TYPE=mieru \
-bash tests/manual-agent-smoke.sh
-```
-
-The script verifies:
-
-- `GET /health` without Bearer is rejected with `401` or `403`;
-- `GET /health` with Bearer returns `ok=true`;
-- `GET /status` returns `node_id`, `protocol_type`, and current applied version;
-- `POST /v1/sync` with the next `config_version` applies desired state;
-- repeating the same sync is a no-op;
-- stale `config_version` is rejected as `stale_version`;
-- `GET /v1/stats` returns `ok=true`;
-- `POST /v1/reload` returns `ok=true` or a clear protocol-service error.
-
-`manual-agent-smoke.sh` dynamically sets `config_version` based on current `/status`, so it can be safely re-run.
-
-Payload examples live in `examples/`:
-
-- `examples/sync-naive-v1.json`
-- `examples/sync-naive-v1-repeat.json`
-- `examples/sync-naive-stale.json`
-- `examples/sync-mieru-v1.json`
-
-The smoke test mutates the local agent users cache and protocol config. Run it on a fresh test node or a node prepared for this check.
+Legacy `/internal/...` routes are kept only as deprecated compatibility/debug endpoints. New Backend integrations should use `/v1/sync`.
 
 ## Local UI Is Read-Only By Default
 
-Локальный UI в этом репозитории является debug/maintenance UI, а не Backend Panel.
+The local UI in this repository is a debug/maintenance UI, not the Backend Panel.
 
-По умолчанию локальные изменения пользователей отключены:
+Local user mutations are disabled by default:
 
 ```env
 ALLOW_LOCAL_USER_MUTATIONS=false
 ```
 
-Эквивалент в config:
+Config equivalent:
 
 ```json
 {
@@ -157,7 +89,7 @@ ALLOW_LOCAL_USER_MUTATIONS=false
 }
 ```
 
-Когда `allowLocalUserMutations=false`, legacy endpoints вроде `POST /api/users`, `PATCH /api/users/:id`, `DELETE /api/users/:id`, reset sessions и rotate token возвращают:
+When `allowLocalUserMutations=false`, legacy endpoints such as `POST /api/users`, `PATCH /api/users/:id`, `DELETE /api/users/:id`, reset sessions, and rotate token return:
 
 ```json
 {
@@ -166,11 +98,11 @@ ALLOW_LOCAL_USER_MUTATIONS=false
 }
 ```
 
-Production flow должен использовать Backend Panel + `POST /v1/sync`. Включать `ALLOW_LOCAL_USER_MUTATIONS=true` можно только для локального dev/debug режима. Node Agent не является source of truth.
+Production flow must use Backend Panel + `POST /v1/sync`. Set `ALLOW_LOCAL_USER_MUTATIONS=true` only for local dev/debug mode. The Node Agent is not the source of truth.
 
 ## POST /v1/sync
 
-Backend отправляет полный desired state для конкретной ноды:
+Backend sends the full desired state for one node:
 
 ```json
 {
@@ -184,60 +116,23 @@ Backend отправляет полный desired state для конкретн�
       "password": "secret",
       "enabled": true,
       "expires_at": "2026-07-02T00:00:00Z",
-      "quota_mb": 0,
-      "meta": {
-        "backend_user_id": 123,
-        "telegram_id": 123456789
-      }
+      "quota_mb": 0
     }
   ]
 }
 ```
 
-Агент:
+The agent rejects stale `config_version`, returns no-op for an already applied version and state hash, replaces the local users cache from Backend payload, applies the selected protocol driver atomically, and writes `applied_version` only after a successful reload/apply.
 
-- проверяет Bearer token;
-- проверяет `node_id`;
-- проверяет `protocol_type`;
-- сравнивает `config_version` с локальным `current_version`;
-- возвращает `stale_version`, если версия ниже примененной;
-- возвращает no-op, если версия и hash desired state уже применены;
-- заменяет локальный users cache payload'ом Backend;
-- атомарно применяет конфиг выбранного driver;
-- обновляет `applied_version` только после успешного reload/apply.
-
-Applied state хранится локально:
+Applied state is stored locally:
 
 ```text
 /var/lib/vetka-node-agent/state.json
 ```
 
-Это cache, а не бизнес-база.
+This file is cache, not a business database.
 
-## Firewall
-
-Если используется UFW, порт агента не должен открываться всему интернету. Разрешайте только Backend Panel IP:
-
-```bash
-ufw allow from <BACKEND_PANEL_IP> to any port 2222 proto tcp
-```
-
-Если Backend IP не задан, установщик должен предупреждать оператора и не открывать `NODE_PORT` публично без явного подтверждения.
-
-## Managed Static Site
-
-Функция managed static site сохраняется. Скрипт:
-
-```bash
-bash /opt/vetka-node-agent/scripts/static-site.sh status
-bash /opt/vetka-node-agent/scripts/static-site.sh deploy
-bash /opt/vetka-node-agent/scripts/static-site.sh deploy --url https://example.com/dist.tar.gz
-bash /opt/vetka-node-agent/scripts/static-site.sh rollback
-```
-
-Пути могут быть переименованы в будущей миграции, но команды `status`, `deploy`, `deploy --url`, `rollback` должны остаться рабочими.
-
-## Проверки
+## Checks
 
 ```bash
 bash -n install.sh
@@ -250,11 +145,4 @@ node --check panel/server/caddyTemplate.js
 node --check panel/public/app.js
 
 git diff --check
-```
-
-Если доступны npm-зависимости:
-
-```bash
-cd panel
-npm test
 ```

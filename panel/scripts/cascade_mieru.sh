@@ -1,34 +1,34 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# cascade_mieru.sh вЂ” Mieru cascade (Variant B) orchestrator  v1.2.6
+# cascade_mieru.sh Mieru cascade (Variant B) orchestrator v1.2.6
 #
 # Implements the proven "redsocks + iptables + mieru-client" relay chain so the
 # panel can enable/disable a mieru+mieru cascade entirely from the web UI.
 #
-#   Client в†’ Entry node (this host: mita) в†’ mieru-client (SOCKS5 :1080)
-#          в†’ redsocks (:12345) в†’ iptables REDSOCKS в†’ Exit node (mita) в†’ internet
+# Client Entry node (this host: mita) mieru-client (SOCKS5 :1080)
+# redsocks (:12345) iptables REDSOCKS Exit node (mita) internet
 #
 # This script is invoked by the panel backend (panel/server/index.js):
-#   bash cascade_mieru.sh setup    --exit-host H --exit-port-start P --exit-port-end P \
-#                                  --exit-user U --exit-pass PW
-#   bash cascade_mieru.sh teardown
-#   bash cascade_mieru.sh status
+# bash cascade_mieru.sh setup --exit-host H --exit-port-start P --exit-port-end P \
+# --exit-user U --exit-pass PW
+# bash cascade_mieru.sh teardown
+# bash cascade_mieru.sh status
 #
 # Design notes (mirrors the field-tested manual guide; avoids its pitfalls):
-#   вЂў mieru-client config uses "profiles" (plural). "profile" в†’ unknown field.
-#   вЂў Client config MUST NOT contain "mtu" (unsupported в†’ unknown field).
-#   вЂў mieru.service uses Type=forking + "mieru start" ("mieru run" does NOT exist).
-#   вЂў redsocks is restarted together with mieru via ExecStartPost (else traffic
-#     stops flowing through the cascade after a mieru restart).
-#   вЂў A RETURN rule for the EXIT node IP prevents an iptables routing loop.
-#   вЂў Watchdog (cron, 3 consecutive failures) restarts mieru to self-heal.
-#   вЂў Lazy install (A2): mieru-client + redsocks are installed on first setup.
+# mieru-client config uses "profiles" (plural). "profile" unknown field.
+# Client config MUST NOT contain "mtu" (unsupported unknown field).
+# mieru.service uses Type=forking + "mieru start" ("mieru run" does NOT exist).
+# redsocks is restarted together with mieru via ExecStartPost (else traffic
+# stops flowing through the cascade after a mieru restart).
+# A RETURN rule for the EXIT node IP prevents an iptables routing loop.
+# Watchdog (cron, 3 consecutive failures) restarts mieru to self-heal.
+# Lazy install (A2): mieru-client + redsocks are installed on first setup.
 #
 # Idempotent: re-running setup re-applies cleanly. teardown leaves a clean host.
 # ==============================================================================
 set -euo pipefail
 
-# в”Ђв”Ђ Paths / constants в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# Paths / constants
 MIERU_CLIENT_BIN="/usr/bin/mieru"
 MIERU_CLIENT_CONFIG="/var/lib/vetka-node-agent/mieru-client-config.json"
 MIERU_SERVICE="/etc/systemd/system/mieru.service"
@@ -47,7 +47,7 @@ log()  { echo "[cascade] $*"; }
 err()  { echo "[cascade][ERROR] $*" >&2; }
 die()  { err "$*"; exit 1; }
 
-# в”Ђв”Ђ Arg parsing в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# Arg parsing
 ACTION="${1:-}"; shift || true
 
 EXIT_HOST=""
@@ -69,15 +69,15 @@ done
 
 [[ $EUID -ne 0 ]] && die "must run as root"
 
-# в”Ђв”Ђ mita uid (owner-match for iptables) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# mita uid (owner-match for iptables)
 mita_uid() {
   id -u mita 2>/dev/null || echo ""
 }
 
-# в”Ђв”Ђ Resolve exit host в†’ IPv4 (needed for the anti-loop RETURN rule) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# Resolve exit host IPv4 (needed for the anti-loop RETURN rule)
 resolve_exit_ip() {
   local host="$1"
-  # Already an IPv4 literal?
+#
   if [[ "$host" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     echo "$host"; return 0
   fi
@@ -87,25 +87,25 @@ resolve_exit_ip() {
   echo "$ip"
 }
 
-# в”Ђв”Ђ Lazy install: mieru-client + redsocks (A2) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# Lazy install: mieru-client + redsocks (A2)
 ensure_packages() {
-  # redsocks via apt
+#
   if ! command -v redsocks &>/dev/null; then
-    log "installing redsocksвЂ¦"
+    log "installing redsocks"
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq 2>/dev/null || true
     apt-get install -y -qq redsocks 2>/dev/null || apt-get install -y redsocks || \
       die "failed to install redsocks"
   fi
 
-  # iptables + persistence helper
+#
   command -v iptables &>/dev/null || apt-get install -y -qq iptables 2>/dev/null || true
   command -v dig &>/dev/null || apt-get install -y -qq dnsutils 2>/dev/null || true
 
-  # mieru client (.deb) вЂ” the panel/install ships mita; the client binary may
-  # not be present. Install it from the same GitHub release as mita.
+#
+#
   if [[ ! -x "$MIERU_CLIENT_BIN" ]] || ! "$MIERU_CLIENT_BIN" version &>/dev/null; then
-    log "installing mieru clientвЂ¦"
+    log "installing mieru client"
     local arch deb_arch
     case "$(uname -m)" in
       x86_64|amd64)  deb_arch="amd64" ;;
@@ -127,14 +127,14 @@ ensure_packages() {
     dpkg -i "$deb" 2>/dev/null || apt-get install -f -y
     rm -f "$deb"
   fi
-  log "packages ready вњ“"
+  log "packages ready "
 }
 
-# в”Ђв”Ђ Write mieru-client config (profiles plural, NO mtu) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# Write mieru-client config (profiles plural, NO mtu)
 write_mieru_client_config() {
   mkdir -p "$(dirname "$MIERU_CLIENT_CONFIG")"
 
-  # Build server portBindings array for the full exit port range.
+#
   local port_bindings
   port_bindings=$(python3 - "$EXIT_PORT_START" "$EXIT_PORT_END" <<'PYEOF'
 import json, sys
@@ -143,7 +143,7 @@ print(json.dumps([{"port": p, "protocol": "TCP"} for p in range(s, e + 1)]))
 PYEOF
 )
 
-  # NOTE: mtu is intentionally omitted (unsupported in client config).
+#
   python3 - "$EXIT_HOST" "$EXIT_USER" "$EXIT_PASS" "$port_bindings" "$RPC_PORT" "$SOCKS5_PORT" \
     > "$MIERU_CLIENT_CONFIG" <<'PYEOF'
 import json, sys
@@ -171,10 +171,10 @@ cfg = {
 print(json.dumps(cfg, indent=2))
 PYEOF
   chmod 600 "$MIERU_CLIENT_CONFIG"
-  log "mieru-client config written в†’ $MIERU_CLIENT_CONFIG вњ“"
+  log "mieru-client config written  $MIERU_CLIENT_CONFIG "
 }
 
-# в”Ђв”Ђ Write mieru.service (Type=forking + mieru start; restart redsocks after) в”Ђв”Ђ
+# Write mieru.service (Type=forking + mieru start; restart redsocks after)
 write_mieru_service() {
   cat > "$MIERU_SERVICE" <<SVCEOF
 [Unit]
@@ -189,7 +189,7 @@ ExecStart=${MIERU_CLIENT_BIN} start
 ExecStop=${MIERU_CLIENT_BIN} stop
 # Reload the client config on (re)start so panel changes take effect.
 ExecStartPre=${MIERU_CLIENT_BIN} apply config ${MIERU_CLIENT_CONFIG}
-# Keep redsocks bound to mieru lifecycle вЂ” else traffic stops after a restart.
+# Keep redsocks bound to mieru lifecycle else traffic stops after a restart.
 ExecStartPost=/bin/systemctl restart redsocks
 Restart=on-failure
 RestartSec=5s
@@ -197,10 +197,10 @@ RestartSec=5s
 [Install]
 WantedBy=multi-user.target
 SVCEOF
-  log "mieru.service written вњ“"
+  log "mieru.service written "
 }
 
-# в”Ђв”Ђ Write redsocks.conf в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# Write redsocks.conf
 write_redsocks_conf() {
   cat > "$REDSOCKS_CONF" <<RSEOF
 base {
@@ -218,19 +218,19 @@ redsocks {
     type = socks5;
 }
 RSEOF
-  log "redsocks.conf written вњ“"
+  log "redsocks.conf written "
 }
 
-# в”Ђв”Ђ iptables REDSOCKS chain (idempotent) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# iptables REDSOCKS chain (idempotent)
 apply_iptables() {
   local exit_ip="$1" uid="$2"
 
-  # Remove any previous chain first (idempotent re-apply).
+#
   clear_iptables
 
   iptables -t nat -N REDSOCKS 2>/dev/null || true
 
-  # Never touch local / loopback traffic.
+#
   iptables -t nat -A REDSOCKS -d 0.0.0.0/8       -j RETURN
   iptables -t nat -A REDSOCKS -d 10.0.0.0/8      -j RETURN
   iptables -t nat -A REDSOCKS -d 127.0.0.0/8     -j RETURN
@@ -240,47 +240,47 @@ apply_iptables() {
   iptables -t nat -A REDSOCKS -d 224.0.0.0/4     -j RETURN
   iptables -t nat -A REDSOCKS -d 240.0.0.0/4     -j RETURN
 
-  # CRITICAL anti-loop: traffic to the exit node must bypass redsocks.
+#
   [[ -n "$exit_ip" ]] && iptables -t nat -A REDSOCKS -d "${exit_ip}/32" -j RETURN
 
-  # Everything else (TCP) в†’ redsocks.
+#
   iptables -t nat -A REDSOCKS -p tcp -j REDIRECT --to-ports "${REDSOCKS_PORT}"
 
-  # Apply ONLY to traffic owned by the mita user (the proxied client traffic).
+#
   if [[ -n "$uid" ]]; then
     iptables -t nat -A OUTPUT -p tcp -m owner --uid-owner "$uid" -j REDSOCKS
   else
-    err "mita uid not found вЂ” cannot scope iptables to mita user"
+    err "mita uid not found  cannot scope iptables to mita user"
     return 1
   fi
 
-  # Persist if iptables-persistent is available; else install it.
+#
   if ! command -v netfilter-persistent &>/dev/null; then
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq iptables-persistent 2>/dev/null || true
   fi
   command -v netfilter-persistent &>/dev/null && netfilter-persistent save 2>/dev/null || true
-  log "iptables REDSOCKS chain applied (exit_ip=${exit_ip:-none}, uid=$uid) вњ“"
+  log "iptables REDSOCKS chain applied (exit_ip=${exit_ip:-none}, uid=$uid) "
 }
 
 clear_iptables() {
   local uid; uid=$(mita_uid)
-  # Remove OUTPUT jump(s) to REDSOCKS (loop until none remain).
+#
   if [[ -n "$uid" ]]; then
     while iptables -t nat -C OUTPUT -p tcp -m owner --uid-owner "$uid" -j REDSOCKS 2>/dev/null; do
       iptables -t nat -D OUTPUT -p tcp -m owner --uid-owner "$uid" -j REDSOCKS 2>/dev/null || break
     done
   fi
-  # Flush + delete the chain.
+#
   iptables -t nat -F REDSOCKS 2>/dev/null || true
   iptables -t nat -X REDSOCKS 2>/dev/null || true
   command -v netfilter-persistent &>/dev/null && netfilter-persistent save 2>/dev/null || true
 }
 
-# в”Ђв”Ђ Watchdog (cron, 3 consecutive failures в†’ restart mieru) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# Watchdog (cron, 3 consecutive failures restart mieru)
 write_watchdog() {
   cat > "$WATCHDOG_BIN" <<'WDEOF'
 #!/usr/bin/env bash
-# mieru cascade watchdog вЂ” restart mieru only after 3 consecutive failures.
+# mieru cascade watchdog restart mieru only after 3 consecutive failures.
 FAILS=0
 for i in 1 2 3; do
   if curl -s --socks5 127.0.0.1:1080 --max-time 10 https://api.ipify.org >/dev/null 2>&1; then
@@ -293,17 +293,17 @@ done
 WDEOF
   chmod +x "$WATCHDOG_BIN"
   cat > "$CRON_FILE" <<CRONEOF
-# Mieru cascade watchdog вЂ” every 5 minutes
+# Mieru cascade watchdog every 5 minutes
 */5 * * * * root $WATCHDOG_BIN >/dev/null 2>&1
 CRONEOF
-  log "watchdog + cron installed вњ“"
+  log "watchdog + cron installed "
 }
 
 remove_watchdog() {
   rm -f "$WATCHDOG_BIN" "$CRON_FILE"
 }
 
-# в”Ђв”Ђ redsocks в†” mieru systemd binding (drop-in) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+# redsocks mieru systemd binding (drop-in)
 write_redsocks_dropin() {
   mkdir -p /etc/systemd/system/redsocks.service.d
   cat > /etc/systemd/system/redsocks.service.d/cascade.conf <<DROPEOF
@@ -322,20 +322,18 @@ remove_redsocks_dropin() {
   rmdir /etc/systemd/system/redsocks.service.d 2>/dev/null || true
 }
 
-# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
 # Actions
-# в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
 do_setup() {
   [[ -z "$EXIT_HOST" ]] && die "--exit-host is required"
   [[ -z "$EXIT_USER" ]] && die "--exit-user is required"
   [[ -z "$EXIT_PASS" ]] && die "--exit-pass is required"
 
   local uid; uid=$(mita_uid)
-  [[ -z "$uid" ]] && die "mita user not found вЂ” is Mieru (mita) installed?"
+  [[ -z "$uid" ]] && die "mita user not found  is Mieru (mita) installed->"
 
   local exit_ip; exit_ip=$(resolve_exit_ip "$EXIT_HOST")
   [[ -z "$exit_ip" ]] && die "could not resolve exit host '$EXIT_HOST' to an IPv4 address"
-  log "exit host $EXIT_HOST в†’ $exit_ip"
+  log "exit host $EXIT_HOST  $exit_ip"
 
   ensure_packages
   write_mieru_client_config
@@ -348,16 +346,16 @@ do_setup() {
   systemctl enable redsocks 2>/dev/null || true
   systemctl enable mieru    2>/dev/null || true
 
-  # Apply client config + start the relay.
+#
   "$MIERU_CLIENT_BIN" apply config "$MIERU_CLIENT_CONFIG" 2>/dev/null || \
-    log "mieru apply returned non-zero вЂ” service start will retry"
+    log "mieru apply returned non-zero  service start will retry"
   systemctl restart mieru   || die "mieru client failed to start (journalctl -u mieru)"
   sleep 2
   systemctl restart redsocks || die "redsocks failed to start (journalctl -u redsocks)"
 
   apply_iptables "$exit_ip" "$uid"
 
-  # Persist cascade state for status/teardown.
+#
   mkdir -p "$(dirname "$STATE_FILE")"
   cat > "$STATE_FILE" <<STEOF
 exit_host=$EXIT_HOST
@@ -368,12 +366,12 @@ enabled=1
 STEOF
   chmod 600 "$STATE_FILE"
 
-  log "cascade ENABLED вњ“"
+  log "cascade ENABLED "
   do_status || true
 }
 
 do_teardown() {
-  log "tearing down cascadeвЂ¦"
+  log "tearing down cascade"
   clear_iptables
   remove_watchdog
   systemctl stop mieru     2>/dev/null || true
@@ -383,17 +381,17 @@ do_teardown() {
   systemctl disable redsocks 2>/dev/null || true
   systemctl daemon-reload
 
-  # Shred the client config (contains exit credentials).
+#
   [[ -f "$MIERU_CLIENT_CONFIG" ]] && { shred -u "$MIERU_CLIENT_CONFIG" 2>/dev/null || rm -f "$MIERU_CLIENT_CONFIG"; }
   rm -f "$MIERU_SERVICE"
   [[ -f "$STATE_FILE" ]] && { echo "enabled=0" > "$STATE_FILE"; chmod 600 "$STATE_FILE"; }
 
   systemctl daemon-reload
-  log "cascade DISABLED вњ“"
+  log "cascade DISABLED "
 }
 
 do_status() {
-  echo "в”Ђв”Ђ Mieru cascade status в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ"
+  echo " Mieru cascade status "
   local enabled="0"
   [[ -f "$STATE_FILE" ]] && enabled=$(grep -E '^enabled=' "$STATE_FILE" | cut -d= -f2)
   echo "  configured:        ${enabled:-0}"
@@ -408,12 +406,12 @@ do_status() {
   local jump="no"
   iptables -t nat -L OUTPUT -n 2>/dev/null | grep -q REDSOCKS && jump="yes"
   echo "  iptables REDSOCKS: $jump"
-  # Live egress IP check (best-effort).
+#
   local egress_ip
   egress_ip=$(curl -s --socks5 127.0.0.1:${SOCKS5_PORT} --max-time 8 https://api.ipify.org 2>/dev/null || echo "")
   echo "  egress IP (socks5):${egress_ip:+ $egress_ip}${egress_ip:-' (unreachable)'}"
-  echo "в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ"
-  # Exit non-zero if requested-enabled but relay is down (useful for callers).
+  echo ""
+#
   if [[ "${enabled:-0}" == "1" ]]; then
     systemctl is-active --quiet mieru && systemctl is-active --quiet redsocks || return 1
   fi

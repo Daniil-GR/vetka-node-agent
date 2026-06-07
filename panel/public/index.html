@@ -350,12 +350,12 @@
         <div class="modal">
           <div class="modal-header">
             <h4 id="ip-history-title">IP History</h4>
-            <button class="modal-close" data-action="close-ip-history-modal" aria-label="Close">вњ•</button>
+            <button class="modal-close" data-action="close-ip-history-modal" aria-label="Close">x</button>
           </div>
           <div class="modal-body">
             <div class="info-list" style="margin-bottom:12px">
-              <div class="info-row"><span>Active IPs</span><span id="ip-history-active">вЂ”</span></div>
-              <div class="info-row"><span>Unique IPs 24h</span><span id="ip-history-unique">вЂ”</span></div>
+              <div class="info-row"><span>Active IPs</span><span id="ip-history-active">-</span></div>
+              <div class="info-row"><span>Unique IPs 24h</span><span id="ip-history-unique">-</span></div>
             </div>
             <div class="table-wrap">
               <table class="data-table">
@@ -376,7 +376,7 @@
             </div>
           </div>
           <div class="modal-footer">
-            <button class="btn btn-ghost" data-action="close-ip-history-modal">Close</button>
+            <button class="modal-close" data-action="close-ip-history-modal" aria-label="Close">x</button>
           </div>
         </div>
       </div>
@@ -796,7 +796,7 @@
       </div>
 
       <div class="card mt-4">
-        <div class="card-header">Per-user IP History 24h <span id="user-history-ip-count" class="badge badge-gray">вЂ”</span></div>
+        <div class="card-header">Per-user IP History 24h <span id="user-history-ip-count" class="badge badge-gray">-</span></div>
         <div class="card-body">
           <div class="table-wrap">
             <table class="data-table" id="user-ip-history-table">

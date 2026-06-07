@@ -49,9 +49,9 @@ apply_setting net.core.somaxconn 65535
 apply_setting net.ipv4.tcp_max_syn_backlog 65535
 
 if ! $DRY_RUN; then
-  # Persist settings
+#
   cat > "$SYSCTL_FILE" <<SYSCONF
-# Vetka Node Agent вЂ” network tuning
+# Vetka Node Agent network tuning
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
 net.core.rmem_max = 134217728
@@ -69,4 +69,4 @@ SYSCONF
   echo "[tune] Settings saved to $SYSCTL_FILE"
 fi
 
-echo "[tune] Done вњ“"
+echo "[tune] Done "
