@@ -1,0 +1,18 @@
+{
+  "node_id": "alps-mieru-1",
+  "config_version": 1,
+  "protocol_type": "mieru",
+  "users": [
+    {
+      "id": "smoke-mieru-001",
+      "username": "smoke_mieru_001",
+      "password": "change-me-smoke-mieru-001",
+      "enabled": true,
+      "expires_at": "2026-12-31T23:59:59Z",
+      "quota_mb": 0,
+      "meta": {
+        "source": "manual-agent-smoke"
+      }
+    }
+  ]
+}

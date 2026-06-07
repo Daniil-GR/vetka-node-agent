@@ -1110,7 +1110,11 @@ smoke_test() {
   fi
 
   # Panel HTTP
-  if curl -sf http://127.0.0.1:${NODE_PORT}/health -o /dev/null 2>/dev/null; then
+  local node_secret=""
+  if [[ -f "$PANEL_CONFIG" ]] && command -v jq &>/dev/null; then
+    node_secret="$(jq -r '.nodeSecret // empty' "$PANEL_CONFIG" 2>/dev/null || true)"
+  fi
+  if [[ -n "$node_secret" ]] && curl -sf -H "Authorization: Bearer ${node_secret}" http://127.0.0.1:${NODE_PORT}/health -o /dev/null 2>/dev/null; then
     echo -e "  ${GREEN}вњ“${NC} Node Agent health OK"; (( pass++ ))
   else
     echo -e "  ${YELLOW}вљ ${NC}  Node Agent health not responding"

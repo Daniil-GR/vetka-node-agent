@@ -1631,7 +1631,7 @@ smoke_test() {
   fi
 
   # Panel
-  chk "Node Agent health :${NODE_PORT}" "curl -sf http://127.0.0.1:${NODE_PORT}/health -o /dev/null"
+  chk "Node Agent health :${NODE_PORT}" "curl -sf -H \"Authorization: Bearer \$(jq -r '.nodeSecret // empty' '$PANEL_CONFIG')\" http://127.0.0.1:${NODE_PORT}/health -o /dev/null"
   chk "config.json present"          "[[ -f $PANEL_CONFIG ]]"
   chk "version file present"         "[[ -f $VERSION_FILE ]]"
 
@@ -1688,7 +1688,7 @@ print_banner() {
   if [[ "${EXPOSE_PANEL^^}" =~ ^(Y|Р”)$ ]]; then
     echo -e "    $(t 'РџСѓР±Р»РёС‡РЅС‹Р№ URL' 'Public URL'):  ${CYAN}http://$server_ip:8080/${NC}"
   else
-    echo -e "    Health: ${CYAN}http://$server_ip:${NODE_PORT}/health${NC}"
+    echo -e "    Health: ${CYAN}curl -H 'Authorization: Bearer <NODE_SECRET>' http://127.0.0.1:${NODE_PORT}/health${NC}"
     echo -e "    Status: ${CYAN}curl -H 'Authorization: Bearer <NODE_SECRET>' http://127.0.0.1:${NODE_PORT}/status${NC}"
   fi
   echo ""

@@ -2126,6 +2126,7 @@ function statusPayload() {
     ok: true,
     node_id: cfg.nodeId || null,
     protocol_type: cfg.protocolType,
+    current_version: state.current_version || 0,
     applied_version: state.current_version || 0,
     last_applied_at: state.last_applied_at || null,
     last_error: state.last_error || null,
@@ -2134,7 +2135,7 @@ function statusPayload() {
   };
 }
 
-app.get('/health', (_req, res) => {
+app.get('/health', requireNodeAuth, (_req, res) => {
   res.json({
     ok: true,
     node_id: cfg.nodeId || null,

@@ -64,7 +64,7 @@ PROTOCOL_TYPE=mieru
 
 ## API
 
-`GET /health` можно использовать для локального healthcheck. Остальные служебные endpoint'ы требуют:
+Служебные endpoint'ы агента, включая `GET /health`, требуют:
 
 ```http
 Authorization: Bearer <NODE_SECRET>
@@ -84,6 +84,60 @@ GET  /v1/stats
 ```
 
 Старые `/internal/...` маршруты оставлены как deprecated compatibility/debug surface. Новый Backend должен использовать `/v1/sync`.
+
+## Manual Agent Smoke Test
+
+Use this before implementing Backend Panel to verify the Node Agent contract on a real node. The test talks only to the agent API and does not require Backend Panel, PostgreSQL, or a bot.
+
+Requirements on the machine running the test:
+
+```bash
+curl
+jq
+bash
+```
+
+Run:
+
+```bash
+NODE_AGENT_URL=http://127.0.0.1:2222 \
+NODE_ID=alps-naive-1 \
+NODE_SECRET='<NODE_SECRET>' \
+PROTOCOL_TYPE=naive \
+bash tests/manual-agent-smoke.sh
+```
+
+For Mieru:
+
+```bash
+NODE_AGENT_URL=http://127.0.0.1:2222 \
+NODE_ID=alps-mieru-1 \
+NODE_SECRET='<NODE_SECRET>' \
+PROTOCOL_TYPE=mieru \
+bash tests/manual-agent-smoke.sh
+```
+
+The script verifies:
+
+- `GET /health` without Bearer is rejected with `401` or `403`;
+- `GET /health` with Bearer returns `ok=true`;
+- `GET /status` returns `node_id`, `protocol_type`, and current applied version;
+- `POST /v1/sync` with the next `config_version` applies desired state;
+- repeating the same sync is a no-op;
+- stale `config_version` is rejected as `stale_version`;
+- `GET /v1/stats` returns `ok=true`;
+- `POST /v1/reload` returns `ok=true` or a clear protocol-service error.
+
+`manual-agent-smoke.sh` dynamically sets `config_version` based on current `/status`, so it can be safely re-run.
+
+Payload examples live in `examples/`:
+
+- `examples/sync-naive-v1.json`
+- `examples/sync-naive-v1-repeat.json`
+- `examples/sync-naive-stale.json`
+- `examples/sync-mieru-v1.json`
+
+The smoke test mutates the local agent users cache and protocol config. Run it on a fresh test node or a node prepared for this check.
 
 ## Local UI Is Read-Only By Default
 

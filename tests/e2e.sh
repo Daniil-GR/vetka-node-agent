@@ -77,6 +77,7 @@ done
 [[ $EUID -ne 0 ]] && { log_error "Run as root: sudo bash tests/e2e.sh"; exit 1; }
 [[ -z "$DOMAIN" ]]  && { log_error "--domain is required"; exit 1; }
 [[ -z "$EMAIL" ]]   && EMAIL="admin@${DOMAIN}"
+E2E_NODE_SECRET="${NODE_SECRET:-vetka_e2e_$(openssl rand -hex 24)}"
 
 # в”Ђв”Ђ Helper: assert with message в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 assert() {
@@ -108,6 +109,7 @@ echo "  Domain:    $DOMAIN"
 echo "  Email:     $EMAIL"
 echo "  Port:      $NAIVE_PORT"
 echo "  Repo root: $REPO_ROOT"
+echo "  Node secret: configured (hidden)"
 
 # в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
 # STEP 1 вЂ” Install
@@ -117,7 +119,9 @@ if $SKIP_INSTALL; then
   skip "Installation (--skip-install)"
 else
   log_info "Running install.sh in non-interactive mode..."
-  if ALLOW_LOCAL_USER_MUTATIONS=true bash "$REPO_ROOT/install.sh" \
+  if NODE_SECRET="$E2E_NODE_SECRET" \
+      ALLOW_LOCAL_USER_MUTATIONS=true \
+      bash "$REPO_ROOT/install.sh" \
       --non-interactive \
       --domain "$DOMAIN" \
       --email  "$EMAIL" \
@@ -228,6 +232,11 @@ fi
 assert "Node Agent process running (PM2)"         "pm2 list 2>/dev/null | grep -q vetka-node-agent"
 assert "Node Agent health responds"             "curl -sf '$PANEL_URL/' -o /dev/null"
 assert "config.json present"                 "[[ -f '$PANEL_CONFIG' ]]"
+if python3 -c "import json,sys; d=json.load(open(sys.argv[1])); raise SystemExit(0 if d.get('nodeSecret') else 1)" "$PANEL_CONFIG" 2>/dev/null; then
+  pass "nodeSecret configured in config.json"
+else
+  fail "nodeSecret missing from config.json"
+fi
 assert "version file present"                "[[ -f '$VERSION_FILE' ]]"
 assert "agent version in file is 1.2.6"      "grep -q '1.2.6' '$VERSION_FILE'"
 assert "DB present"                          "[[ -f '$DB_PATH' ]]"
@@ -491,7 +500,9 @@ log_step "Step 7: idempotent --force reinstall"
 if $SKIP_INSTALL; then
   skip "Idempotent reinstall (--skip-install set)"
 else
-  if ALLOW_LOCAL_USER_MUTATIONS=true bash "$REPO_ROOT/install.sh" \
+  if NODE_SECRET="$E2E_NODE_SECRET" \
+      ALLOW_LOCAL_USER_MUTATIONS=true \
+      bash "$REPO_ROOT/install.sh" \
       --non-interactive --force \
       --domain "$DOMAIN" \
       --email  "$EMAIL" \

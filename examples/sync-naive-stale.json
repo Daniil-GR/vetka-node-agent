@@ -1,0 +1,18 @@
+{
+  "node_id": "alps-naive-1",
+  "config_version": 0,
+  "protocol_type": "naive",
+  "users": [
+    {
+      "id": "smoke-naive-001",
+      "username": "smoke_naive_001",
+      "password": "change-me-smoke-naive-001",
+      "enabled": true,
+      "expires_at": "2026-12-31T23:59:59Z",
+      "quota_mb": 0,
+      "meta": {
+        "source": "manual-agent-smoke"
+      }
+    }
+  ]
+}

@@ -43,7 +43,7 @@ POST /v1/reload
 GET  /v1/stats
 ```
 
-`GET /health` can be used by local system checks. The other endpoints require Bearer auth.
+Agent service endpoints, including `GET /health`, require Bearer auth.
 
 ## Sync Contract
 
@@ -74,6 +74,62 @@ Rules:
 - on apply failure, users cache is rolled back.
 - `protocolType=naive` writes users with `protocols=["naive"]`.
 - `protocolType=mieru` writes users with `protocols=["mieru"]`.
+
+## Manual Agent Smoke Test
+
+Use this before implementing Backend Panel to verify the Node Agent contract on a real node. The test talks only to the agent API and does not require Backend Panel, PostgreSQL, or a bot.
+
+Requirements on the machine running the test:
+
+```bash
+curl
+jq
+bash
+```
+
+Naive example:
+
+```bash
+NODE_AGENT_URL=http://127.0.0.1:2222 \
+NODE_ID=alps-naive-1 \
+NODE_SECRET='<NODE_SECRET>' \
+PROTOCOL_TYPE=naive \
+bash tests/manual-agent-smoke.sh
+```
+
+Mieru example:
+
+```bash
+NODE_AGENT_URL=http://127.0.0.1:2222 \
+NODE_ID=alps-mieru-1 \
+NODE_SECRET='<NODE_SECRET>' \
+PROTOCOL_TYPE=mieru \
+bash tests/manual-agent-smoke.sh
+```
+
+The script verifies:
+
+- `GET /health` without Bearer is rejected with `401` or `403`.
+- `GET /health` with Bearer returns `ok=true`.
+- `GET /status` returns `node_id`, `protocol_type`, and current applied version.
+- `POST /v1/sync` with the next `config_version` applies desired state.
+- repeating the same sync is a no-op.
+- stale `config_version` is rejected as `stale_version`.
+- `GET /v1/stats` returns `ok=true`.
+- `POST /v1/reload` returns `ok=true` or a clear protocol-service error.
+
+`manual-agent-smoke.sh` dynamically sets `config_version` based on current `/status`, so it can be safely re-run.
+
+Payload examples:
+
+```text
+examples/sync-naive-v1.json
+examples/sync-naive-v1-repeat.json
+examples/sync-naive-stale.json
+examples/sync-mieru-v1.json
+```
+
+The smoke test mutates the local agent users cache and protocol config. Run it on a fresh test node or a node prepared for this check.
 
 ## Local User Mutations
 
