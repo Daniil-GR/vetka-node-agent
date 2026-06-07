@@ -791,7 +791,7 @@ function applySelectedProtocolConfig(protocolType) {
   if (!mita.ok && mita.required) {
     if (previous !== null) {
       fs.writeFileSync(resolvedMitaFile, previous, { mode: 0o600 });
-      try { applyMitaConfigDetailed(); } catch {}
+      try { applyWrittenMieruState(resolvedMitaFile); } catch {}
     }
     return { ok: false, error: mita.error || 'mita apply failed' };
   }
@@ -918,26 +918,27 @@ function buildMitaStateFile() {
   return resolvedMitaFile;
 }
 
-function ensureMitaStatePermissions(file) {
+function fixMieruStatePermissions(file) {
   const dir = path.dirname(file);
   try { fs.mkdirSync(dir, { recursive: true }); }
   catch (e) { return { ok: false, error: `Failed to create ${dir}: ${e.message}` }; }
 
+  const user = runLogged('getent', ['passwd', 'mita'], { timeout: 5000, quiet: true });
   const group = runLogged('getent', ['group', 'mita'], { timeout: 5000, quiet: true });
-  if (!group.ok) {
-    const error = 'mita group does not exist yet; cannot set mita-state.json group permissions';
+  if (!user.ok || !group.ok) {
+    const error = 'mita user/group does not exist yet; cannot set mita-state.json permissions';
     console.warn(`[MITA] ${error}`);
     return { ok: false, error };
   }
 
   const steps = [
-    ['chgrp', ['mita', dir], `Failed to set mita group on ${dir}`],
-    ['chmod', ['750', dir], `Failed to set mode 750 on ${dir}`]
+    ['chown', ['root:mita', dir], `Failed to set owner root:mita on ${dir}`],
+    ['chmod', ['770', dir], `Failed to set mode 770 on ${dir}`]
   ];
   if (fs.existsSync(file)) {
     steps.push(
-      ['chgrp', ['mita', file], `Failed to set mita group on ${file}`],
-      ['chmod', ['640', file], `Failed to set mode 640 on ${file}`]
+      ['chown', ['root:mita', file], `Failed to set owner root:mita on ${file}`],
+      ['chmod', ['660', file], `Failed to set mode 660 on ${file}`]
     );
   }
 
@@ -946,32 +947,53 @@ function ensureMitaStatePermissions(file) {
     if (!r.ok) return { ok: false, error: `${message}: ${r.error}` };
   }
 
+  if (runLogged('bash', ['-lc', 'command -v setfacl >/dev/null 2>&1'], { timeout: 5000, quiet: true }).ok) {
+    const aclSteps = [
+      ['setfacl', ['-m', 'u:mita:rwx,m:rwx', dir], `Failed to set ACL on ${dir}`],
+      ['setfacl', ['-d', '-m', 'u:mita:rwx,m:rwx', dir], `Failed to set default ACL on ${dir}`]
+    ];
+    if (fs.existsSync(file)) {
+      aclSteps.push(['setfacl', ['-m', 'u:mita:rw,m:rw', file], `Failed to set ACL on ${file}`]);
+    }
+    for (const [cmd, args, message] of aclSteps) {
+      const r = runLogged(cmd, args, { timeout: 5000, quiet: true });
+      if (!r.ok) console.warn(`[MITA] ${message}: ${r.error}`);
+    }
+  }
+
   if (fs.existsSync(file)) {
-    const check = runLogged('bash', ['-lc', `if command -v sudo >/dev/null 2>&1; then sudo -u mita test -x ${shellQuote(dir)} && sudo -u mita test -r ${shellQuote(file)}; else runuser -u mita -- test -x ${shellQuote(dir)} && runuser -u mita -- test -r ${shellQuote(file)}; fi`], { timeout: 5000 });
+    const check = runLogged('bash', ['-lc', `if command -v sudo >/dev/null 2>&1; then sudo -u mita test -x ${shellQuote(dir)} && sudo -u mita test -w ${shellQuote(dir)} && sudo -u mita test -r ${shellQuote(file)} && sudo -u mita test -w ${shellQuote(file)}; else runuser -u mita -- test -x ${shellQuote(dir)} && runuser -u mita -- test -w ${shellQuote(dir)} && runuser -u mita -- test -r ${shellQuote(file)} && runuser -u mita -- test -w ${shellQuote(file)}; fi`], { timeout: 5000 });
     if (!check.ok) {
-      return { ok: false, error: `mita cannot read ${file}. Check directory/file permissions. ${check.error}`.trim() };
+      return { ok: false, error: `mita cannot access ${file} for read/write. Check directory/file permissions. ${check.error}`.trim() };
     }
   }
 
   return { ok: true };
 }
 
+function ensureMitaStatePermissions(file) {
+  return fixMieruStatePermissions(file);
+}
+
 function commandText(error) {
   if (!error) return '';
   const stdout = error.stdout ? error.stdout.toString() : '';
   const stderr = error.stderr ? error.stderr.toString() : '';
-  return `${stdout}${stderr}${error.message ? `\n${error.message}` : ''}`.trim();
+  return `${stdout}${stderr}${error.message ? `
+${error.message}` : ''}`.trim();
 }
 
 function runLogged(command, args = [], options = {}) {
   const label = [command, ...args].join(' ');
   try {
     const stdout = execFileSync(command, args, { encoding: 'utf8', timeout: options.timeout || 15000 });
-    if (!options.quiet && stdout && stdout.trim()) console.log(`[MITA] ${label}\n${stdout.trim()}`);
+    if (!options.quiet && stdout && stdout.trim()) console.log(`[MITA] ${label}
+${stdout.trim()}`);
     return { ok: true, stdout: stdout || '', stderr: '', command: label };
   } catch (e) {
     const output = commandText(e);
-    if (!options.quiet) console.error(`[MITA] ${label} failed${output ? `\n${output}` : ''}`);
+    if (!options.quiet) console.error(`[MITA] ${label} failed${output ? `
+${output}` : ''}`);
     return { ok: false, stdout: e.stdout ? e.stdout.toString() : '', stderr: e.stderr ? e.stderr.toString() : '', error: output || e.message, command: label };
   }
 }
@@ -983,80 +1005,73 @@ function mitaUserCount(file) {
   } catch { return 0; }
 }
 
+function mitaJournalTail(lines = 20) {
+  const out = runLogged('journalctl', ['-u', 'mita', '-n', String(lines), '--no-pager'], { timeout: 10000, quiet: true });
+  return out.ok ? (out.stdout || '').trim() : '';
+}
+
 function ensureMitaJsonBootstrap(file) {
   const dir = '/etc/systemd/system/mita.service.d';
   const dropIn = path.join(dir, '10-vetka-node-agent.conf');
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(dropIn, `[Service]\nEnvironment=MITA_CONFIG_JSON_FILE=${file}\n`, { mode: 0o644 });
+  fs.writeFileSync(dropIn, `[Service]
+Environment=MITA_CONFIG_JSON_FILE=${file}
+`, { mode: 0o644 });
   runLogged('systemctl', ['daemon-reload'], { timeout: 10000 });
   return dropIn;
 }
 
-function applyMitaConfigLive(file) {
-  return runLogged('mita', ['apply', 'config', file], { timeout: 15000 });
-}
-
-function startMitaDaemonForBootstrap(file) {
+function restartMieruAfterConfigApply(file) {
   const dropIn = ensureMitaJsonBootstrap(file);
   console.log(`[MITA] bootstrap drop-in ensured: ${dropIn}`);
   runLogged('systemctl', ['reset-failed', 'mita'], { timeout: 10000 });
-  return runLogged('systemctl', ['restart', 'mita'], { timeout: 20000 });
+  const restart = runLogged('systemctl', ['restart', 'mita'], { timeout: 20000 });
+  if (!restart.ok) {
+    const journal = mitaJournalTail(20);
+    return { ok: false, error: `systemctl restart mita failed: ${restart.error}${journal ? `
+${journal}` : ''}`.trim() };
+  }
+  const active = runLogged('systemctl', ['is-active', '--quiet', 'mita'], { timeout: 10000, quiet: true });
+  if (!active.ok) {
+    const journal = mitaJournalTail(20);
+    return { ok: false, error: `mita is not active after restart${journal ? `
+${journal}` : ''}`.trim() };
+  }
+  return { ok: true, output: restart.stdout || '' };
 }
 
-function startMitaProxy() {
-  const status = runLogged('mita', ['status'], { timeout: 10000 });
-  if (status.ok && /RUNNING/i.test(status.stdout)) {
-    return runLogged('mita', ['reload'], { timeout: 15000 });
-  }
-  const stop = runLogged('mita', ['stop'], { timeout: 10000 });
-  if (!stop.ok) console.warn(`[MITA] mita stop before start returned non-zero: ${stop.error}`);
-  let start = runLogged('mita', ['start'], { timeout: 15000 });
-  if (!start.ok) {
-    const restart = runLogged('systemctl', ['restart', 'mita'], { timeout: 20000 });
-    if (!restart.ok) return restart;
-    start = runLogged('mita', ['start'], { timeout: 15000 });
-  }
-  return start;
+function stopMieruWhenNoUsers() {
+  runLogged('systemctl', ['stop', 'mita'], { timeout: 10000, quiet: true });
+  runLogged('systemctl', ['reset-failed', 'mita'], { timeout: 10000, quiet: true });
+  return {
+    ok: true,
+    idle: true,
+    message: 'mita has no users; service will stay idle until users are applied via /v1/sync'
+  };
 }
 
-function applyMitaConfigDetailed() {
-  const file = buildMitaStateFile();
+function applyWrittenMieruState(file) {
   const users = mitaUserCount(file);
-  const perms = ensureMitaStatePermissions(file);
+  const perms = fixMieruStatePermissions(file);
   if (!perms.ok) {
     return { ok: false, required: users > 0, users, file, error: perms.error };
   }
   if (users === 0) {
-    const error = 'Mieru не может быть запущен: нет активных Mieru-пользователей';
-    console.warn(`[MITA] ${error}`);
-    runLogged('systemctl', ['stop', 'mita'], { timeout: 10000 });
-    runLogged('systemctl', ['reset-failed', 'mita'], { timeout: 10000 });
+    const stopped = stopMieruWhenNoUsers();
     shredFile(file + '.last');
-    return { ok: false, required: false, idle: true, users, file, error };
+    return { ok: true, required: false, idle: true, users, file, message: stopped.message };
   }
-
-  let apply = applyMitaConfigLive(file);
-  if (!apply.ok) {
-    const firstError = apply.error || '';
-    if (/daemon is not running|connection refused|connect: connection refused|no such file|unavailable/i.test(firstError)) {
-      const daemon = startMitaDaemonForBootstrap(file);
-      if (!daemon.ok) {
-        return { ok: false, required: true, users, file, error: `mita bootstrap daemon restart failed: ${daemon.error}`, applyError: firstError };
-      }
-      apply = applyMitaConfigLive(file);
-    }
+  const restarted = restartMieruAfterConfigApply(file);
+  if (!restarted.ok) {
+    return { ok: false, required: true, users, file, error: restarted.error || 'mita restart failed' };
   }
-  if (!apply.ok) {
-    return { ok: false, required: true, users, file, error: apply.error || 'mita apply config failed' };
-  }
-
-  const started = startMitaProxy();
-  if (!started.ok) {
-    return { ok: false, required: true, users, file, error: started.error || 'mita start failed' };
-  }
-
   shredFile(file + '.last');
-  return { ok: true, required: true, users, file, applyOutput: apply.stdout || '', startOutput: started.stdout || '' };
+  return { ok: true, required: true, users, file, restartOutput: restarted.output || '' };
+}
+
+function applyMitaConfigDetailed() {
+  const file = buildMitaStateFile();
+  return applyWrittenMieruState(file);
 }
 
 function applyMitaConfig() {
@@ -1070,7 +1085,6 @@ function restartMieru() {
   catch (e) { console.error('[MITA]', e.message); return false; }
 }
 
-// ── Mieru cascade (Variant B) — scripts/cascade_mieru.sh orchestrator ─────────
 const CASCADE_SCRIPT = path.join(__dirname, '../scripts/cascade_mieru.sh');
 
 // Run cascade_mieru.sh {setup|teardown|status}. Returns { ok, output }.
@@ -1102,7 +1116,8 @@ function shredFile(fp) {
 }
 
 // ── applyAllConfigs() — unified pipeline ─────────────────────────────────────
-// Rebuilds Caddyfile, reloads Caddy, rebuilds mita state, applies mita config.
+// --- applyAllConfigs(): unified pipeline ---
+// Rebuilds Caddyfile, reloads Caddy, rebuilds mita state, and applies the local runtime state.
 // Called after every user CRUD operation.
 function applyAllConfigs() {
   let caddyOk = false, mitaOk = false, caddyError = '', caddyAction = '', mitaError = '', mitaRequired = false, mitaIdle = false;

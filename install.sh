@@ -968,49 +968,58 @@ SVCCADDY
 }
 
 # Mieru initial state file
-ensure_mita_state_permissions() {
+fix_mieru_state_permissions() {
   local dir
   dir="$(dirname "$MITA_STATE_FILE")"
   mkdir -p "$dir"
 
-  if ! getent group mita >/dev/null 2>&1; then
-    log_warn "mita group does not exist yet; cannot set mita-state.json group permissions"
+  if ! getent passwd mita >/dev/null 2>&1 || ! getent group mita >/dev/null 2>&1; then
+    log_warn "mita user/group does not exist yet; cannot set mita-state.json permissions"
     return 1
   fi
 
   local out
-  if ! out=$(chgrp mita "$dir" 2>&1); then
-    log_warn "Failed to set mita group on $dir: $out"
+  if ! out=$(chown root:mita "$dir" 2>&1); then
+    log_warn "Failed to set owner root:mita on $dir: $out"
     return 1
   fi
-  if ! out=$(chmod 750 "$dir" 2>&1); then
-    log_warn "Failed to set mode 750 on $dir: $out"
+  if ! out=$(chmod 770 "$dir" 2>&1); then
+    log_warn "Failed to set mode 770 on $dir: $out"
     return 1
   fi
 
   if [[ -f "$MITA_STATE_FILE" ]]; then
-    if ! out=$(chgrp mita "$MITA_STATE_FILE" 2>&1); then
-      log_warn "Failed to set mita group on $MITA_STATE_FILE: $out"
+    if ! out=$(chown root:mita "$MITA_STATE_FILE" 2>&1); then
+      log_warn "Failed to set owner root:mita on $MITA_STATE_FILE: $out"
       return 1
     fi
-    if ! out=$(chmod 640 "$MITA_STATE_FILE" 2>&1); then
-      log_warn "Failed to set mode 640 on $MITA_STATE_FILE: $out"
+    if ! out=$(chmod 660 "$MITA_STATE_FILE" 2>&1); then
+      log_warn "Failed to set mode 660 on $MITA_STATE_FILE: $out"
       return 1
+    fi
+    if command -v setfacl >/dev/null 2>&1; then
+      setfacl -m u:mita:rwx,m:rwx "$dir" 2>/dev/null || true
+      setfacl -d -m u:mita:rwx,m:rwx "$dir" 2>/dev/null || true
+      setfacl -m u:mita:rw,m:rw "$MITA_STATE_FILE" 2>/dev/null || true
     fi
     if command -v sudo >/dev/null 2>&1; then
-      sudo -u mita test -x "$dir" && sudo -u mita test -r "$MITA_STATE_FILE" || {
-        log_warn "mita cannot read $MITA_STATE_FILE. Check directory/file permissions."
+      sudo -u mita test -x "$dir" && sudo -u mita test -w "$dir" && sudo -u mita test -r "$MITA_STATE_FILE" && sudo -u mita test -w "$MITA_STATE_FILE" || {
+        log_warn "mita cannot read/write $MITA_STATE_FILE. Check directory/file permissions."
         return 1
       }
     else
-      runuser -u mita -- test -x "$dir" && runuser -u mita -- test -r "$MITA_STATE_FILE" || {
-        log_warn "mita cannot read $MITA_STATE_FILE. Check directory/file permissions."
+      runuser -u mita -- test -x "$dir" && runuser -u mita -- test -w "$dir" && runuser -u mita -- test -r "$MITA_STATE_FILE" && runuser -u mita -- test -w "$MITA_STATE_FILE" || {
+        log_warn "mita cannot read/write $MITA_STATE_FILE. Check directory/file permissions."
         return 1
       }
     fi
   fi
 
   return 0
+}
+
+ensure_mita_state_permissions() {
+  fix_mieru_state_permissions
 }
 
 write_mita_state() {
@@ -1033,7 +1042,7 @@ cfg = {
 with open("$MITA_STATE_FILE", "w") as f:
     json.dump(cfg, f, indent=2)
 PYEOF
-  ensure_mita_state_permissions || true
+  fix_mieru_state_permissions || true
   log_info "Mita state file -> $MITA_STATE_FILE OK"
 }
 
@@ -1302,34 +1311,28 @@ MITADROPIN
   systemctl daemon-reload
 }
 
-apply_mita_config_bootstrap() {
-  if ! has_mieru_users; then
-    log_warn "Mieru cannot be started: no active Mieru users configured"
-    systemctl stop mita 2>/dev/null || true
-    systemctl reset-failed mita 2>/dev/null || true
-    return 2
+restart_mieru_after_config_apply() {
+  ensure_mita_json_bootstrap
+  fix_mieru_state_permissions || return 1
+  systemctl reset-failed mita 2>/dev/null || true
+  if ! systemctl restart mita 2>&1; then
+    log_warn "systemctl restart mita failed"
+    journalctl -u mita -n 20 --no-pager 2>/dev/null | sed 's/^/[mita] /' || true
+    return 1
   fi
+  if ! systemctl is-active --quiet mita; then
+    log_warn "mita is not active after restart"
+    journalctl -u mita -n 20 --no-pager 2>/dev/null | sed 's/^/[mita] /' || true
+    return 1
+  fi
+  return 0
+}
 
-  ensure_mita_state_permissions || return 1
-
-  local out
-  if out=$(mita apply config "$MITA_STATE_FILE" 2>&1); then
-    [[ -n "$out" ]] && log_info "mita apply config output: $out"
-    return 0
-  fi
-  log_warn "mita apply config failed: $out"
-  if echo "$out" | grep -qiE 'daemon is not running|connection refused|unavailable'; then
-    ensure_mita_json_bootstrap
-    systemctl reset-failed mita 2>/dev/null || true
-    systemctl restart mita 2>&1 || true
-    sleep 1
-    if out=$(mita apply config "$MITA_STATE_FILE" 2>&1); then
-      [[ -n "$out" ]] && log_info "mita apply config output: $out"
-      return 0
-    fi
-  fi
-  log_warn "mita apply config failed after bootstrap: $out"
-  return 1
+stop_mieru_when_no_users() {
+  systemctl stop mita 2>/dev/null || true
+  systemctl reset-failed mita 2>/dev/null || true
+  log_info "mita has no users; service will stay idle until users are applied via /v1/sync"
+  return 0
 }
 
 start_services() {
@@ -1419,13 +1422,7 @@ start_services() {
 #
   write_mita_service
   systemctl enable mita 2>/dev/null || true
-  local _mita_apply_rc=0
-  apply_mita_config_bootstrap || _mita_apply_rc=$?
-  if [[ "$_mita_apply_rc" -eq 0 ]]; then
-    log_info "mita config applied OK"
-  elif [[ "$_mita_apply_rc" -ne 2 ]]; then
-    log_warn "mita apply config returned non-zero - check: mita status"
-  fi
+  fix_mieru_state_permissions || true
   local _mita_users
   _mita_users=$(python3 -c "
 import json, sys
@@ -1436,28 +1433,13 @@ except Exception:
     print(0)
 " 2>/dev/null || echo 0)
   if [[ "$_mita_users" -gt 0 ]]; then
-#
-#
-#
-    local _mita_restart_out
-    if ! _mita_restart_out=$(systemctl restart mita 2>&1); then
-      log_warn "systemctl restart mita failed: $_mita_restart_out"
-    elif [[ -n "$_mita_restart_out" ]]; then
-      log_info "systemctl restart mita output: $_mita_restart_out"
-    fi
-    sleep 1
-    local _mita_start_out
-    if _mita_start_out=$(mita start 2>&1); then
-      [[ -n "$_mita_start_out" ]] && log_info "mita start output: $_mita_start_out"
-      log_info "mita started OK"
+    if restart_mieru_after_config_apply; then
+      log_info "mita active OK"
     else
-      [[ -n "$_mita_start_out" ]] && log_warn "mita start failed: $_mita_start_out"
-      log_warn "mita failed to start - journalctl -u mita -n 30 / mita status"
+      log_warn "mita failed to start - inspect: systemctl status mita --no-pager"
     fi
   else
-    systemctl stop mita 2>/dev/null || true
-    systemctl reset-failed mita 2>/dev/null || true
-    log_info "mita: no users yet - service will start automatically after first user is added via panel"
+    stop_mieru_when_no_users
   fi
 
 #
@@ -1702,7 +1684,7 @@ main() {
   install_nodejs
   install_caddy_naive
   install_mieru
-  ensure_mita_state_permissions || true
+  fix_mieru_state_permissions || true
   gather_config
   setup_fake_site
   write_mita_state

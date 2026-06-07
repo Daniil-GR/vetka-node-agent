@@ -11,28 +11,62 @@ ensure_mita_state_permissions() {
   dir="$(dirname "$MITA_STATE_FILE")"
   mkdir -p "$dir"
 
-  if ! getent group mita >/dev/null 2>&1; then
-    echo "[WARN] mita group does not exist yet; cannot set mita-state.json group permissions"
+  local out
+  if ! getent passwd mita >/dev/null 2>&1 || ! getent group mita >/dev/null 2>&1; then
+    echo "[WARN] mita user/group does not exist yet; cannot set mita-state.json permissions"
     return 0
   fi
-  if ! out=$(chgrp mita "$dir" 2>&1); then
-    echo "[WARN] Failed to set mita group on $dir: $out"
+  if ! out=$(chown root:mita "$dir" 2>&1); then
+    echo "[WARN] Failed to set owner root:mita on $dir: $out"
     return 0
   fi
-  if ! out=$(chmod 750 "$dir" 2>&1); then
-    echo "[WARN] Failed to set mode 750 on $dir: $out"
+  if ! out=$(chmod 770 "$dir" 2>&1); then
+    echo "[WARN] Failed to set mode 770 on $dir: $out"
     return 0
   fi
   if [[ -f "$MITA_STATE_FILE" ]]; then
-    if ! out=$(chgrp mita "$MITA_STATE_FILE" 2>&1); then
-      echo "[WARN] Failed to set mita group on $MITA_STATE_FILE: $out"
+    if ! out=$(chown root:mita "$MITA_STATE_FILE" 2>&1); then
+      echo "[WARN] Failed to set owner root:mita on $MITA_STATE_FILE: $out"
       return 0
     fi
-    if ! out=$(chmod 640 "$MITA_STATE_FILE" 2>&1); then
-      echo "[WARN] Failed to set mode 640 on $MITA_STATE_FILE: $out"
+    if ! out=$(chmod 660 "$MITA_STATE_FILE" 2>&1); then
+      echo "[WARN] Failed to set mode 660 on $MITA_STATE_FILE: $out"
       return 0
+    fi
+    if command -v setfacl >/dev/null 2>&1; then
+      setfacl -m u:mita:rwx,m:rwx "$dir" 2>/dev/null || true
+      setfacl -d -m u:mita:rwx,m:rwx "$dir" 2>/dev/null || true
+      setfacl -m u:mita:rw,m:rw "$MITA_STATE_FILE" 2>/dev/null || true
     fi
   fi
+}
+
+get_mita_user_count() {
+  if [[ ! -f "$MITA_STATE_FILE" ]]; then
+    echo 0
+    return 0
+  fi
+  if command -v jq >/dev/null 2>&1; then
+    jq -r '(.users // []) | length' "$MITA_STATE_FILE" 2>/dev/null || echo 0
+    return 0
+  fi
+  echo 0
+}
+
+restart_mita_after_config_apply() {
+  local restart_out
+  if restart_out=$(systemctl restart mita 2>&1); then
+    [[ -n "$restart_out" ]] && echo "[mieru] systemctl restart output: $restart_out"
+    return 0
+  fi
+  echo "[WARN] systemctl restart mita failed: $restart_out"
+  return 1
+}
+
+stop_mita_when_no_users() {
+  systemctl stop mita 2>/dev/null || true
+  systemctl reset-failed mita 2>/dev/null || true
+  echo "[mieru] mita has no users; service will stay idle until users are applied via /v1/sync"
 }
 
 case "$(uname -m)" in
@@ -70,13 +104,13 @@ dpkg -i "$deb_file" 2>/dev/null || apt-get install -f -y
 rm -f "$deb_file"
 ensure_mita_state_permissions
 
-# Enable and start mita service
+# Enable and reconcile mita service
 systemctl daemon-reload
 systemctl enable mita 2>/dev/null || true
-if restart_out=$(systemctl restart mita 2>&1); then
-  [[ -n "$restart_out" ]] && echo "[mieru] systemctl restart output: $restart_out"
+if [[ "$(get_mita_user_count)" -gt 0 ]]; then
+  restart_mita_after_config_apply || true
 else
-  echo "[WARN] systemctl restart mita failed: $restart_out"
+  stop_mita_when_no_users
 fi
 
 echo "[mieru] Installed: $(mita version 2>/dev/null | head -1 || echo $tag)"
