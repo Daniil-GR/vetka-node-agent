@@ -17,6 +17,31 @@ Node Agent = executor that applies desired state
 chcp 65001
 ```
 
+## Installation Layout
+
+Clone the source repository into a separate source directory. Do not run `install.sh` from the runtime directory `/opt/vetka-node-agent`.
+
+Correct install flow:
+
+```bash
+git clone https://github.com/Daniil-GR/vetka-node-agent.git /opt/vetka-node-agent-src
+cd /opt/vetka-node-agent-src
+sudo env NODE_ID=node-1 NODE_SECRET=replace-with-long-random-secret PROTOCOL_TYPE=naive bash install.sh
+```
+
+Runtime files are installed into:
+
+```text
+/opt/vetka-node-agent
+```
+
+After install:
+
+- `/opt/vetka-node-agent-src` remains the source repo checkout;
+- `/opt/vetka-node-agent` contains the runtime app used by PM2;
+- the runtime app does not depend on `.git`;
+- `update.sh` refreshes runtime files through a temporary GitHub checkout instead of treating `/opt/vetka-node-agent` as a git repository.
+
 ## Agent Role
 
 - installed on a node server;

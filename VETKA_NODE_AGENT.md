@@ -18,6 +18,20 @@ LOG_PANEL=/var/log/vetka-node-agent.log
 INSTALL_LOG=/var/log/vetka-node-agent-install.log
 ```
 
+## Install Source vs Runtime
+
+Keep the source repository separate from the runtime directory.
+
+Correct pattern:
+
+```bash
+git clone https://github.com/Daniil-GR/vetka-node-agent.git /opt/vetka-node-agent-src
+cd /opt/vetka-node-agent-src
+sudo env NODE_ID=node-1 NODE_SECRET=replace-with-long-random-secret PROTOCOL_TYPE=naive bash install.sh
+```
+
+`install.sh` copies runtime files from the source repo into `/opt/vetka-node-agent`. It must not be run from `/opt/vetka-node-agent` itself.
+
 Old `/etc/rixxx-panel`, `/var/lib/rixxx-panel`, and `/opt/panel-naive-mieru` paths are legacy migration/cleanup concerns only.
 
 ## Auth

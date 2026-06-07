@@ -38,8 +38,13 @@ log_error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 log_step()  { echo -e "\n${CYAN}${BOLD}==> $*${NC}"; }
 die()       { log_error "$*"; exit 1; }
 
+# Source/runtime separation
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+SOURCE_REPO_DIR="$SCRIPT_DIR"
+PANEL_RUNTIME_DIR="/opt/vetka-node-agent"
+
 # Constants
-PANEL_DIR="/opt/vetka-node-agent"
+PANEL_DIR="$PANEL_RUNTIME_DIR"
 PANEL_CONFIG="/etc/vetka-node-agent/config.json"
 VERSION_FILE="/etc/vetka-node-agent/version"
 BACKUP_DIR="/etc/vetka-node-agent/backups"
@@ -129,6 +134,16 @@ LANG_RU=false
 # Root check
 [[ $EUID -ne 0 ]] && die "Run as root (sudo bash install.sh)"
 
+validate_install_source() {
+  [[ -n "$SOURCE_REPO_DIR" ]] || die "Cannot determine install.sh source directory"
+  if [[ "$SOURCE_REPO_DIR" == "$PANEL_RUNTIME_DIR" ]]; then
+    die "Do not run install.sh from /opt/vetka-node-agent. Clone the repository to /opt/vetka-node-agent-src or /tmp/vetka-node-agent and run install.sh from there."
+  fi
+  if [[ ! -d "$SOURCE_REPO_DIR/panel" ]]; then
+    die "Source panel directory not found: $SOURCE_REPO_DIR/panel"
+  fi
+}
+
 # Language selection
 select_language() {
   if $NON_INTERACTIVE; then return; fi
@@ -171,6 +186,15 @@ detect_arch() {
     *) die "Unsupported architecture: $machine" ;;
   esac
   log_info "Architecture: $machine -> $ARCH OK"
+}
+
+tune_network() {
+  local helper="${SOURCE_REPO_DIR}/panel/scripts/sysctl_tune.sh"
+  if [[ -f "$helper" ]]; then
+    bash "$helper" || log_warn "Network tuning failed/skipped"
+  else
+    log_warn "Network tuning helper not found; skipping"
+  fi
 }
 
 # Idempotent check
@@ -487,21 +511,26 @@ gather_config() {
     fi
 #
     FAKE_SITE_URL="${INPUT_FAKE_SITE_URL:-https://www.example.com}"
-    if [[ "${INPUT_STATIC_SITE_SKIP:-false}" == "true" || -z "${INPUT_STATIC_SITE_URL:-}" ]]; then
+    if [[ "${INPUT_STATIC_SITE_SKIP:-false}" == "true" ]]; then
       STATIC_SITE_ENABLED=false
-      if [[ "${INPUT_STATIC_SITE_SKIP:-false}" == "true" ]]; then
-        STATIC_SITE_SOURCE_TYPE="skip"
-      else
-        STATIC_SITE_SOURCE_TYPE="archive_url"
-        log_warn "Static site URL is empty; managed static site disabled"
-      fi
-      STATIC_SITE_SOURCE_URL="${INPUT_STATIC_SITE_URL:-}"
+      STATIC_SITE_SOURCE_TYPE="skip"
+      STATIC_SITE_SOURCE_URL=""
       STATIC_SITE_ROOT="${INPUT_STATIC_SITE_ROOT:-}"
+      STATIC_SITE_DEPLOY_ON_INSTALL=false
     else
-      STATIC_SITE_ENABLED=true
-      STATIC_SITE_SOURCE_TYPE="archive_url"
       STATIC_SITE_SOURCE_URL="${INPUT_STATIC_SITE_URL:-}"
       STATIC_SITE_ROOT="${INPUT_STATIC_SITE_ROOT:-}"
+      if [[ -z "${INPUT_STATIC_SITE_URL:-}" ]]; then
+        STATIC_SITE_ENABLED=false
+        STATIC_SITE_SOURCE_TYPE="skip"
+        STATIC_SITE_SOURCE_URL=""
+        STATIC_SITE_DEPLOY_ON_INSTALL=false
+        log_warn "Static site URL is empty; managed static site disabled"
+      else
+        STATIC_SITE_ENABLED=true
+        STATIC_SITE_SOURCE_TYPE="archive_url"
+        STATIC_SITE_DEPLOY_ON_INSTALL=true
+      fi
     fi
     PROBE_SECRET="${INPUT_PROBE_SECRET:-$(openssl rand -hex 16)}"
 #
@@ -559,14 +588,16 @@ gather_config() {
 
   echo ""
   read -rp "$(echo -e "${CYAN}Configure static placeholder site->${NC} [Y/n]: ")" INPUT_STATIC_SITE_ENABLE
-  if [[ "${INPUT_STATIC_SITE_ENABLE:-Y}" =~ ^([Nn]||)$ ]]; then
+  if [[ ! "${INPUT_STATIC_SITE_ENABLE:-Y}" =~ ^([Yy]|[Yy][Ee][Ss])$ ]]; then
     STATIC_SITE_ENABLED=false
     STATIC_SITE_SOURCE_TYPE="skip"
     STATIC_SITE_SOURCE_URL=""
     STATIC_SITE_ROOT=""
+    STATIC_SITE_DEPLOY_ON_INSTALL=false
   else
     STATIC_SITE_ENABLED=true
     STATIC_SITE_ROOT=""
+    STATIC_SITE_DEPLOY_ON_INSTALL=true
     echo "  1) archive_url"
     echo "  2) skip"
     read -rp "$(echo -e "${CYAN}Static site source type${NC} [1]: ")" INPUT_STATIC_SITE_TYPE
@@ -575,6 +606,7 @@ gather_config() {
         STATIC_SITE_ENABLED=false
         STATIC_SITE_SOURCE_TYPE="skip"
         STATIC_SITE_SOURCE_URL=""
+        STATIC_SITE_DEPLOY_ON_INSTALL=false
         ;;
       *)
         STATIC_SITE_SOURCE_TYPE="archive_url"
@@ -582,6 +614,9 @@ gather_config() {
         STATIC_SITE_SOURCE_URL="${INPUT_STATIC_SITE_URL:-}"
         if [[ -z "$STATIC_SITE_SOURCE_URL" ]]; then
           STATIC_SITE_ENABLED=false
+          STATIC_SITE_SOURCE_TYPE="skip"
+          STATIC_SITE_SOURCE_URL=""
+          STATIC_SITE_DEPLOY_ON_INSTALL=false
           log_warn "Static site URL is empty; managed static site disabled"
         fi
         ;;
@@ -1085,30 +1120,25 @@ setup_ufw() {
 install_panel() {
   log_step "Installing web panel"
   mkdir -p "$PANEL_DIR"
-#
-#
-#
-  local script_dir; script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
   local src=""
-  if [[ -n "$script_dir" && -d "$script_dir/panel" ]]; then
-    src="$script_dir/panel"
-  elif [[ -d "$PWD/panel" ]]; then
-    src="$PWD/panel"
+  if [[ -d "$SOURCE_REPO_DIR/panel" ]]; then
+    src="$SOURCE_REPO_DIR/panel"
   fi
 
   if [[ -n "$src" ]]; then
     find "$PANEL_DIR" -mindepth 1 -maxdepth 1 ! -name node_modules -exec rm -rf {} + 2>/dev/null || true
-    cp -r "$src/"* "$PANEL_DIR/"
+    cp -a "$src/." "$PANEL_DIR/"
     log_info "Panel files copied from $src OK"
   else
     log_warn "Local panel source not found - cloning from repo..."
-    rm -rf /tmp/panel-src
-    git clone --depth 1 --branch "$PANEL_REPO_BRANCH" "$PANEL_REPO_URL" /tmp/panel-src 2>/dev/null || \
+    local tmp_panel_src; tmp_panel_src=$(mktemp -d /tmp/vetka-node-agent-panel-src.XXXXXX)
+    git clone --depth 1 --branch "$PANEL_REPO_BRANCH" "$PANEL_REPO_URL" "$tmp_panel_src" 2>/dev/null || \
       die "Failed to clone panel source"
     find "$PANEL_DIR" -mindepth 1 -maxdepth 1 ! -name node_modules -exec rm -rf {} + 2>/dev/null || true
     log_info "Fetched latest panel from $PANEL_REPO_URL"
-    cp -r /tmp/panel-src/panel/* "$PANEL_DIR/"
-    rm -rf /tmp/panel-src
+    [[ -d "$tmp_panel_src/panel" ]] || die "Cloned source panel directory not found: $tmp_panel_src/panel"
+    cp -a "$tmp_panel_src/panel/." "$PANEL_DIR/"
+    rm -rf "$tmp_panel_src"
   fi
   ( cd "$PANEL_DIR" && npm install --production --silent )
   grep -q "internalRouter" "$PANEL_DIR/server/index.js" || die "Installed stale panel/server/index.js: internalRouter not found"
@@ -1662,6 +1692,7 @@ print_banner() {
 main() {
   parse_install_args "$@"
 
+  validate_install_source
   select_language
   check_os
   detect_arch

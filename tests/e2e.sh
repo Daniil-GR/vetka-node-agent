@@ -643,8 +643,10 @@ assert "default cfg has cascadeMieru object" \
   "grep -q 'cascadeMieru:' '$REPO_ROOT/panel/server/index.js'"
 
 # Install / Uninstall wiring
-assert "install.sh calls sysctl_tune.sh (BBR)" \
-  "grep -q 'sysctl_tune.sh' '$REPO_ROOT/install.sh' && grep -q 'tune_network' '$REPO_ROOT/install.sh'"
+assert "install.sh defines tune_network wrapper and calls sysctl_tune.sh" \
+  "grep -q '^tune_network()' '$REPO_ROOT/install.sh' && grep -q 'panel/scripts/sysctl_tune.sh' '$REPO_ROOT/install.sh'"
+assert "install.sh static-site opt-out skips source prompt branch" \
+  "grep -q 'if \\[\\[ ! \"\\\${INPUT_STATIC_SITE_ENABLE:-Y}\" =~' '$REPO_ROOT/install.sh' && grep -q 'STATIC_SITE_DEPLOY_ON_INSTALL=false' '$REPO_ROOT/install.sh'"
 assert "uninstall.sh removes iptables REDSOCKS chain" \
   "grep -q 'iptables -t nat -X REDSOCKS' '$REPO_ROOT/uninstall.sh'"
 assert "uninstall.sh removes mieru.service" \
