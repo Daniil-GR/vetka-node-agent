@@ -26,6 +26,11 @@ log_step()  { echo -e "\n${CYAN}${BOLD}==> $*${NC}"; }
 log_dry()   { echo -e "${YELLOW}[DRY-RUN]${NC} $*"; }
 die()       { log_error "$*"; exit 1; }
 
+# Source/runtime separation
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+SOURCE_REPO_DIR="$SCRIPT_DIR"
+PANEL_RUNTIME_DIR="/opt/vetka-node-agent"
+
 # Bug 76: never fail silently. With `set -e`, any un-handled non-zero command
 # aborted the script with no message (the user saw an empty prompt). This trap
 # prints the failing line + command so problems are always visible.
@@ -40,7 +45,7 @@ trap 'on_error $LINENO' ERR
 
 # Constants
 TARGET_VERSION="1.2.6"
-PANEL_DIR="/opt/vetka-node-agent"
+PANEL_DIR="$PANEL_RUNTIME_DIR"
 PANEL_CONFIG="/etc/vetka-node-agent/config.json"
 VERSION_FILE="/etc/vetka-node-agent/version"
 BACKUP_DIR="/etc/vetka-node-agent/backups"
@@ -990,12 +995,11 @@ update_panel() {
   if git clone --depth 1 --branch "$PANEL_REPO_BRANCH" "$PANEL_REPO_URL" "$tmp" 2>/dev/null && [[ -d "$tmp/panel" ]]; then
     src="$tmp/panel"
     log_info "Fetched latest panel from $PANEL_REPO_URL"
-  elif [[ -d "$(pwd)/panel" ]]; then
-#
-    src="$(pwd)/panel"
+  elif [[ -d "$SOURCE_REPO_DIR/panel" ]]; then
+    src="$SOURCE_REPO_DIR/panel"
     log_warn "git clone failed - using local checkout at $src"
   else
-    log_warn "No panel source available (clone failed, no local ./panel) - skipping"
+    log_warn "No panel source available (clone failed, no local source repo panel/) - skipping"
     rm -rf "$tmp"; return
   fi
 
