@@ -156,6 +156,22 @@ request GET /v1/stats "" "$body" "$code"
 check_jq_bool "$body" '.ok == true' || fail "GET /v1/stats did not return ok=true"
 pass "GET /v1/stats returns ok=true"
 
+body="$tmp_dir/telemetry.json"
+code="$tmp_dir/telemetry.code"
+request GET "/v1/telemetry/sessions" "" "$body" "$code"
+[[ "$(cat "$code")" == "200" ]] || fail "GET /v1/telemetry/sessions returned HTTP $(cat "$code")"
+check_jq_bool "$body" --arg protocol_type "$PROTOCOL_TYPE" '
+  .ok == true
+  and .protocol_type == $protocol_type
+  and (.sessions | type == "array")
+  and (.capabilities | type == "object")
+  and (.generated_at | type == "string")
+' || fail "GET /v1/telemetry/sessions did not return the expected schema"
+check_jq_bool "$body" '
+  (. | tostring | test("nodeSecret|subscriptionToken|passHash|password|authorization|hosts|uri|destination"; "i")) | not
+' || fail "GET /v1/telemetry/sessions leaked a forbidden field name"
+pass "GET /v1/telemetry/sessions returns bounded read-only telemetry schema"
+
 body="$tmp_dir/reload.json"
 code="$tmp_dir/reload.code"
 request POST /v1/reload "" "$body" "$code"

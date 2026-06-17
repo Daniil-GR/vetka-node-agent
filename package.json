@@ -1,0 +1,7 @@
+{
+  "name": "vetka-node-agent-workspace",
+  "private": true,
+  "scripts": {
+    "test": "node tests/run-node-tests.js"
+  }
+}

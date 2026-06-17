@@ -226,6 +226,24 @@ migrate_config() {
     fi
     rm -f "$tmp"
   fi
+  local has_telemetry_enabled; has_telemetry_enabled=$(jq -r 'has("telemetryEnabled")' "$PANEL_CONFIG" 2>/dev/null)
+  if [[ "$has_telemetry_enabled" != "true" ]]; then
+    local tmp; tmp=$(mktemp)
+    if jq '.telemetryEnabled = true' "$PANEL_CONFIG" > "$tmp" 2>/dev/null && [[ -s "$tmp" ]]; then
+      cat "$tmp" > "$PANEL_CONFIG"
+      log_info "Config migrated: telemetryEnabled=true OK"
+    fi
+    rm -f "$tmp"
+  fi
+  local has_telemetry_interval; has_telemetry_interval=$(jq -r 'has("telemetryCollectIntervalSeconds")' "$PANEL_CONFIG" 2>/dev/null)
+  if [[ "$has_telemetry_interval" != "true" ]]; then
+    local tmp; tmp=$(mktemp)
+    if jq '.telemetryCollectIntervalSeconds = 15' "$PANEL_CONFIG" > "$tmp" 2>/dev/null && [[ -s "$tmp" ]]; then
+      cat "$tmp" > "$PANEL_CONFIG"
+      log_info "Config migrated: telemetryCollectIntervalSeconds=15 OK"
+    fi
+    rm -f "$tmp"
+  fi
   local tmp; tmp=$(mktemp)
   if jq '.staticSite = ({
       enabled: false,

@@ -92,9 +92,43 @@ GET  /status
 POST /v1/sync
 POST /v1/reload
 GET  /v1/stats
+GET  /v1/telemetry/sessions
 ```
 
 Legacy `/internal/...` routes are kept only as deprecated compatibility/debug endpoints. New Backend integrations should use `/v1/sync`.
+
+## Read-Only Telemetry
+
+The Node Agent exposes a bounded read-only telemetry contract for Backend polling:
+
+```http
+GET /v1/telemetry/sessions
+GET /v1/telemetry/sessions?include_recent=true
+```
+
+This endpoint uses the same `Authorization: Bearer <NODE_SECRET>` and optional `X-Node-Id` checks as the other `/v1` routes.
+
+Telemetry notes:
+
+- default response returns only active observations inside `sessionTtlMinutes`;
+- `include_recent=true` also returns inactive retained observations inside `ipHistoryTtlHours`;
+- Naive telemetry comes from incremental processing of `auth_audit_log` and `traffic_audit_log`;
+- Mieru telemetry comes from `mita get users`;
+- Mieru returns `client_ip=null` because reliable per-user remote IP correlation is not available there;
+- `traffic_scope` is `telemetry-retention-window` for Naive and `mieru-30-day-counter` for Mieru;
+- SQLite on the node remains a disposable local cache, not the source of truth;
+- destination history, raw events, passwords, pass hashes, node secret, authorization headers, and subscription tokens are intentionally not stored or returned.
+
+Telemetry config defaults:
+
+```json
+{
+  "telemetryEnabled": true,
+  "telemetryCollectIntervalSeconds": 15
+}
+```
+
+This patch does not add enforcement. It does not disconnect users, block IPs, change credentials, enable `enforceIpLimit`, or automatically apply `maxUniqueIpsPerUser`.
 
 ## Local UI Is Read-Only By Default
 

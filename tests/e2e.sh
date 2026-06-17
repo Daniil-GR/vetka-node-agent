@@ -358,6 +358,12 @@ else
         else
           fail "Internal logs status failed"
         fi
+        telemetry_payload=$(curl -s -H "Authorization: Bearer $NODE_SECRET_VALUE" "$PANEL_URL/v1/telemetry/sessions" 2>/dev/null || true)
+        if echo "$telemetry_payload" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get('ok') is True; assert isinstance(d.get('sessions'), list); assert isinstance(d.get('capabilities'), dict); text=json.dumps(d).lower(); banned=['password','passhash','nodesecret','authorization','subscriptiontoken']; assert not any(b in text for b in banned)" 2>/dev/null; then
+          pass "/v1/telemetry/sessions returns bounded telemetry schema without secrets"
+        else
+          fail "/v1/telemetry/sessions failed schema/secrets check"
+        fi
       else
         fail "nodeSecret missing from config.json"
       fi
@@ -659,6 +665,10 @@ assert "install_mieru helper keeps mita-state.json writable for mita" \
   "grep -q 'chmod 660' '$REPO_ROOT/panel/scripts/install_mieru.sh' && ! grep -q 'chmod 640.*MITA_STATE_FILE' '$REPO_ROOT/panel/scripts/install_mieru.sh'"
 assert "install_mieru helper has idle no-users path" \
   "grep -q 'service will stay idle until users are applied via /v1/sync' '$REPO_ROOT/panel/scripts/install_mieru.sh' && grep -q 'systemctl stop mita' '$REPO_ROOT/panel/scripts/install_mieru.sh'"
+assert "telemetry route is protected by requireNodeAuth" \
+  "grep -q \"app.get('/v1/telemetry/sessions', requireNodeAuth\" '$REPO_ROOT/panel/server/index.js'"
+assert "telemetry config defaults exist in install/update/example" \
+  "grep -q 'telemetryEnabled' '$REPO_ROOT/install.sh' && grep -q 'telemetryCollectIntervalSeconds' '$REPO_ROOT/install.sh' && grep -q 'telemetryEnabled' '$REPO_ROOT/update.sh' && grep -q 'telemetryCollectIntervalSeconds' '$REPO_ROOT/update.sh' && grep -q 'telemetryEnabled' '$REPO_ROOT/config.json.example'"
 assert "uninstall.sh removes iptables REDSOCKS chain" \
   "grep -q 'iptables -t nat -X REDSOCKS' '$REPO_ROOT/uninstall.sh'"
 assert "uninstall.sh removes mieru.service" \

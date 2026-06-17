@@ -55,9 +55,32 @@ GET  /status
 POST /v1/sync
 POST /v1/reload
 GET  /v1/stats
+GET  /v1/telemetry/sessions
 ```
 
 Agent service endpoints, including `GET /health`, require Bearer auth.
+
+## Read-Only Telemetry
+
+`GET /v1/telemetry/sessions` is the Backend-facing read-only telemetry endpoint.
+
+- it uses the existing `/v1` auth boundary: `Authorization: Bearer <NODE_SECRET>`, allowed Backend IPs, and optional `X-Node-Id`;
+- default response returns only active observations;
+- `include_recent=true` also returns retained inactive observations inside history TTL;
+- Naive uses incremental `auth_audit_log` and `traffic_audit_log` collection;
+- Mieru uses `mita get users`;
+- Mieru client IP is intentionally `null` because reliable per-user IP correlation is not available there;
+- SQLite remains a disposable local cache;
+- enforcement is not added by this patch.
+
+Telemetry defaults:
+
+```json
+{
+  "telemetryEnabled": true,
+  "telemetryCollectIntervalSeconds": 15
+}
+```
 
 ## Sync Contract
 
@@ -130,6 +153,7 @@ The script verifies:
 - repeating the same sync is a no-op.
 - stale `config_version` is rejected as `stale_version`.
 - `GET /v1/stats` returns `ok=true`.
+- `GET /v1/telemetry/sessions` returns a bounded telemetry schema.
 - `POST /v1/reload` returns `ok=true` or a clear protocol-service error.
 
 `manual-agent-smoke.sh` dynamically sets `config_version` based on current `/status`, so it can be safely re-run.

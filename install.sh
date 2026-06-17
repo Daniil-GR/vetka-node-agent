@@ -1242,6 +1242,8 @@ data = {
     "authAuditLogPath": "/var/log/caddy-naive/auth-audit.log",
     "trafficAuditLogPath": "/var/log/caddy-naive/traffic-audit.log",
     "ipHistoryTtlHours": 24,
+    "telemetryEnabled": True,
+    "telemetryCollectIntervalSeconds": 15,
     "maxUniqueIpsPerUser": 5,
     "enforceIpLimit":  False,
     "subscriptionBaseUrl": "",

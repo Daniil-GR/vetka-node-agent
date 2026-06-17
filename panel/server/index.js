@@ -38,11 +38,17 @@ const { execSync, execFileSync } = require('child_process');
 const si             = require('systeminformation');
 const crypto         = require('crypto');
 const net            = require('net');
+const { createTelemetryService } = require('./telemetry/service');
+const { createGracefulShutdown } = require('./shutdown');
+const { normalizeAuditIp } = require('./ip');
+const { createLegacyMieruCompatibilityUpdater, buildMieruUserStatsResponse } = require('./mieruStats');
+const { collectLegacyCaddySessionsFromContent } = require('./caddySessions');
+const { authorizeNodeRequest, createTelemetryRouteHandler } = require('./telemetry/http');
 
 // ── Paths ─────────────────────────────────────────────────────────────────────
-const PANEL_CONFIG    = '/etc/vetka-node-agent/config.json';
-const DB_PATH         = '/var/lib/vetka-node-agent/cache.sqlite';
-const MITA_STATE_FILE = '/var/lib/vetka-node-agent/mita-state.json';
+const PANEL_CONFIG    = process.env.VETKA_PANEL_CONFIG || '/etc/vetka-node-agent/config.json';
+const DB_PATH         = process.env.VETKA_DB_PATH || '/var/lib/vetka-node-agent/cache.sqlite';
+const MITA_STATE_FILE = process.env.VETKA_MITA_STATE_FILE || '/var/lib/vetka-node-agent/mita-state.json';
 
 // v1.2.3: Caddy-forwardproxy-naive paths (replaces standalone naive binary)
 const CADDY_BIN         = '/usr/local/bin/caddy-naive';
@@ -108,6 +114,8 @@ try {
     authAuditLogPath: LOG_AUTH_AUDIT,
     trafficAuditLogPath: LOG_TRAFFIC_AUDIT,
     ipHistoryTtlHours: 24,
+    telemetryEnabled: true,
+    telemetryCollectIntervalSeconds: 15,
     maxUniqueIpsPerUser: 5,
     enforceIpLimit: false,
     allowLocalUserMutations: false,
@@ -119,7 +127,13 @@ try {
 const VALID_PROTOCOL_TYPES = ['naive', 'mieru'];
 cfg.nodeId = (process.env.NODE_ID || cfg.nodeId || '').trim();
 cfg.nodeSecret = (process.env.NODE_SECRET || cfg.nodeSecret || '').trim();
-cfg.nodePort = parseInt(process.env.NODE_PORT || String(cfg.nodePort || cfg.panelPort || 2222), 10) || 2222;
+{
+  const rawNodePort = process.env.NODE_PORT !== undefined
+    ? process.env.NODE_PORT
+    : String(cfg.nodePort ?? cfg.panelPort ?? 2222);
+  const parsedNodePort = parseInt(rawNodePort, 10);
+  cfg.nodePort = Number.isNaN(parsedNodePort) ? 2222 : parsedNodePort;
+}
 cfg.nodeListenHost = (process.env.NODE_LISTEN_HOST || cfg.nodeListenHost || cfg.panelHost || '0.0.0.0').trim();
 cfg.protocolType = (process.env.PROTOCOL_TYPE || cfg.protocolType || 'naive').trim().toLowerCase();
 if (!VALID_PROTOCOL_TYPES.includes(cfg.protocolType)) {
@@ -141,6 +155,12 @@ if (process.env.ALLOW_LOCAL_USER_MUTATIONS !== undefined) {
 cfg.sessionTtlMinutes = parseInt(cfg.sessionTtlMinutes, 10) || 10;
 if (cfg.authAuditLogPath === undefined) cfg.authAuditLogPath = LOG_AUTH_AUDIT;
 if (cfg.trafficAuditLogPath === undefined) cfg.trafficAuditLogPath = LOG_TRAFFIC_AUDIT;
+if (cfg.telemetryEnabled === undefined) cfg.telemetryEnabled = true;
+else if (cfg.telemetryEnabled !== true && cfg.telemetryEnabled !== false) {
+  console.warn('[AGENT] Invalid telemetryEnabled config value; defaulting to true');
+  cfg.telemetryEnabled = true;
+}
+cfg.telemetryCollectIntervalSeconds = parseInt(cfg.telemetryCollectIntervalSeconds, 10) || 15;
 if (!cfg.staticSite || typeof cfg.staticSite !== 'object') {
   cfg.staticSite = {
     enabled: false,
@@ -204,6 +224,8 @@ try {
       downloadMB REAL DEFAULT 0,
       ts         TEXT NOT NULL
     );
+    CREATE INDEX IF NOT EXISTS idx_traffic_snapshots_ts
+      ON traffic_snapshots(ts);
     CREATE TABLE IF NOT EXISTS panel_settings (
       key   TEXT PRIMARY KEY,
       value TEXT
@@ -614,6 +636,8 @@ function safeNodeSettings() {
     authAuditLogPath: cfg.authAuditLogPath || '',
     trafficAuditLogPath: cfg.trafficAuditLogPath || '',
     ipHistoryTtlHours: parseInt(cfg.ipHistoryTtlHours, 10) || 24,
+    telemetryEnabled: cfg.telemetryEnabled !== false,
+    telemetryCollectIntervalSeconds: parseInt(cfg.telemetryCollectIntervalSeconds, 10) || 15,
     maxUniqueIpsPerUser: parseInt(cfg.maxUniqueIpsPerUser, 10) || 5,
     enforceIpLimit: cfg.enforceIpLimit === true,
     allowLocalUserMutations: cfg.allowLocalUserMutations === true,
@@ -637,6 +661,7 @@ function nodeAgentVersionPayload() {
 
 function applyNodeSettingsPatch(body) {
   const patch = body || {};
+  let telemetryChanged = false;
   if (patch.backendAllowedIps !== undefined) {
     const ips = normalizeBackendAllowedIps(patch.backendAllowedIps);
     if (!ips) return { error: 'backendAllowedIps must be an array of valid IP addresses' };
@@ -652,14 +677,32 @@ function applyNodeSettingsPatch(body) {
   }
   if (patch.authAuditLogPath !== undefined) {
     cfg.authAuditLogPath = String(patch.authAuditLogPath || '').trim();
+    telemetryChanged = true;
   }
   if (patch.trafficAuditLogPath !== undefined) {
     cfg.trafficAuditLogPath = String(patch.trafficAuditLogPath || '').trim();
+    telemetryChanged = true;
   }
   if (patch.ipHistoryTtlHours !== undefined) {
     const ttlHours = parseInt(patch.ipHistoryTtlHours, 10);
     if (!Number.isInteger(ttlHours) || ttlHours < 1 || ttlHours > 168) return { error: 'ipHistoryTtlHours must be 1..168' };
     cfg.ipHistoryTtlHours = ttlHours;
+    telemetryChanged = true;
+  }
+  if (patch.telemetryEnabled !== undefined) {
+    if (typeof patch.telemetryEnabled !== 'boolean') {
+      return { error: 'telemetryEnabled must be a boolean' };
+    }
+    cfg.telemetryEnabled = patch.telemetryEnabled;
+    telemetryChanged = true;
+  }
+  if (patch.telemetryCollectIntervalSeconds !== undefined) {
+    const interval = parseInt(patch.telemetryCollectIntervalSeconds, 10);
+    if (!Number.isInteger(interval) || interval < 5 || interval > 300) {
+      return { error: 'telemetryCollectIntervalSeconds must be 5..300' };
+    }
+    cfg.telemetryCollectIntervalSeconds = interval;
+    telemetryChanged = true;
   }
   if (patch.maxUniqueIpsPerUser !== undefined) {
     const maxIps = parseInt(patch.maxUniqueIpsPerUser, 10);
@@ -676,7 +719,7 @@ function applyNodeSettingsPatch(body) {
     return { error: 'backendAllowedIps cannot be empty unless allowAnyBackendIp=true' };
   }
   saveConfig();
-  return { settings: safeNodeSettings() };
+  return { settings: safeNodeSettings(), telemetryChanged };
 }
 
 function shellQuote(v) {
@@ -1377,13 +1420,8 @@ function requireLocalUserMutations(_req, res, next) {
 }
 
 function requireNodeAuth(req, res, next) {
-  const expected = (cfg.nodeSecret || '').trim();
-  const auth = (req.headers.authorization || '').trim();
-  const nodeId = (req.headers['x-node-id'] || '').toString().trim();
-  if (!expected) return res.status(503).json({ ok: false, error: 'NODE_SECRET is not configured' });
-  if (!isIpAllowed(req)) return res.status(403).json({ ok: false, error: 'source IP is not allowed' });
-  if (auth !== `Bearer ${expected}`) return res.status(401).json({ ok: false, error: 'invalid bearer token' });
-  if (nodeId && nodeId !== cfg.nodeId) return res.status(403).json({ ok: false, error: 'X-Node-Id does not match this node' });
+  const authResult = authorizeNodeRequest(req, cfg);
+  if (!authResult.ok) return res.status(authResult.status).json(authResult.payload);
   next();
 }
 
@@ -1432,6 +1470,10 @@ function ipHistoryTtlHours() {
 
 function ipHistoryCutoffMs() {
   return Date.now() - ipHistoryTtlHours() * 3600000;
+}
+
+function historyCutoffIso() {
+  return new Date(ipHistoryCutoffMs()).toISOString();
 }
 
 function parseAccessLogTimestamp(value) {
@@ -1606,37 +1648,7 @@ function getNodeSessionsFromCaddyLog() {
   const content = readLogTail(LOG_CADDY, 1024 * 1024 * 5);
   if (!content) return [];
 
-  const byIp = new Map();
-  for (const line of content.split('\n')) {
-    if (!line.trim()) continue;
-    let row;
-    try { row = JSON.parse(line); } catch { continue; }
-    const req = row.request || {};
-    const method = row.method || req.method || '';
-    if (method && method !== 'CONNECT') continue;
-    const remoteIp = String(req.remote_ip || row.remote_ip || row.remote_addr || '').replace(/^::ffff:/, '');
-    if (!remoteIp) continue;
-    const tsRaw = row.ts ?? row.time ?? row.timestamp ?? new Date().toISOString();
-    const parsed = parseAccessLogTimestamp(tsRaw);
-    if (!parsed) continue;
-    const seen = parsed.toISOString();
-    const host = row.host || req.host || req.uri || '';
-    const existing = byIp.get(remoteIp) || {
-      remoteIp,
-      firstSeen: seen,
-      lastSeen: seen,
-      requestCount: 0,
-      hosts: new Set(),
-      protocol: 'naive',
-      username: null
-    };
-    existing.requestCount += 1;
-    if (host) existing.hosts.add(String(host));
-    if (seen < existing.firstSeen) existing.firstSeen = seen;
-    if (seen > existing.lastSeen) existing.lastSeen = seen;
-    byIp.set(remoteIp, existing);
-  }
-  return [...byIp.values()]
+  return collectLegacyCaddySessionsFromContent(content, { normalizeAuditIp })
     .map(s => ({ ...s, hosts: [...s.hosts].slice(-10) }))
     .sort((a, b) => b.lastSeen.localeCompare(a.lastSeen));
 }
@@ -1651,6 +1663,24 @@ function authAuditUnavailableReason() {
   return '';
 }
 
+const legacyMieruCompatibilityUpdater = createLegacyMieruCompatibilityUpdater({
+  db,
+  getAllUsers,
+  historyCutoffIso
+});
+
+const telemetryService = createTelemetryService({
+  db,
+  cfg,
+  getAllUsers,
+  normalizeAuditIp,
+  authAuditLogPath,
+  trafficAuditLogPath,
+  onMieruRowsCollected({ rows, collectedAt }) {
+    applyLegacyMieruCompatibilitySnapshot(rows, collectedAt);
+  }
+});
+
 function sessionResetCutoffMs(username) {
   if (!db || !username) return 0;
   try {
@@ -1660,13 +1690,6 @@ function sessionResetCutoffMs(username) {
   } catch {
     return 0;
   }
-}
-
-function normalizeAuditIp(value) {
-  const raw = String(value || '').trim().replace(/^::ffff:/, '');
-  if (!raw) return '';
-  const split = raw.match(/^\[?([0-9a-fA-F:.]+)\]?:(\d+)$/);
-  return split ? split[1] : raw;
 }
 
 let authAuditCache = { key: '', readAtMs: 0, payload: null };
@@ -2256,6 +2279,8 @@ app.get('/v1/stats', requireNodeAuth, (_req, res) => {
   });
 });
 
+app.get('/v1/telemetry/sessions', requireNodeAuth, createTelemetryRouteHandler(telemetryService));
+
 app.get('/api/users', requireAuth, (req, res) => {
   const users = getAllUsers().map(enrichUserForList);
   res.json(users);
@@ -2303,6 +2328,7 @@ app.get('/api/node-api/settings', requireAuth, (req, res) => {
 app.patch('/api/node-api/settings', requireAuth, (req, res) => {
   const result = applyNodeSettingsPatch(req.body);
   if (result.error) return res.status(400).json({ ok: false, error: result.error });
+  if (result.telemetryChanged) telemetryService.refresh();
   res.json({ ok: true, settings: result.settings });
 });
 
@@ -3050,6 +3076,7 @@ internalRouter.get('/settings', (_req, res) => internalOk(res, { settings: safeN
 internalRouter.patch('/settings', (req, res) => {
   const result = applyNodeSettingsPatch(req.body);
   if (result.error) return res.status(400).json({ ok: false, error: result.error });
+  if (result.telemetryChanged) telemetryService.refresh();
   internalOk(res, { settings: result.settings });
 });
 internalRouter.get('/node/info', (_req, res) => internalOk(res, {
@@ -3321,79 +3348,19 @@ app.get('/api/status', requireAuth, async (req, res) => {
 
 // User traffic stats
 app.get('/api/stats/users', requireAuth, (req, res) => {
-  const exec_ = cmd => { try { return execSync(cmd, { timeout: 8000 }).toString(); } catch { return ''; } };
-  // Bug 78: the real mieru server command is `mita get users` (NOT the
-  //   non-existent `mita describe users`, which always returned '' → traffic 0).
-  //   Output is a table: User  LastActive  1DayDownload  1DayUpload  30DaysDownload  30DaysUpload
-  const raw   = exec_('mita get users 2>/dev/null');
-  const live  = parseMitaUsers(raw);
-  const users = getAllUsers().map(u => {
-    const s = live.find(x => x.username === u.username) || {};
-    return attachTrafficToUserPayload({
-      username:   u.username,
-      email:      u.email,
-      expiry:     u.expiry,
-      protocols:  JSON.parse(u.protocols || '[]'),
-      quotaMB:    u.quotaMB,
-      usedMB:     u.usedMB || 0,
-      // Prefer the live LastActive reported by mita; fall back to stored value.
-      lastSeen:   s.lastSeen || u.lastSeen
-    }, { mieruTraffic: s });
-  });
-  res.json(users);
+  res.json(buildMieruUserStatsResponse({
+    getAllUsers,
+    attachTrafficToUserPayload,
+    telemetryService
+  }));
 });
 
-// Bug 78: parse the `mita get users` table.
-//   User  LastActive            1DayDownload  1DayUpload  30DaysDownload  30DaysUpload
-//   abcd  2025-04-23T01:02:03Z  938.1MiB      12.9MiB     4.0GiB          31.8MiB
-//   "used" = 30-day download + 30-day upload (best per-key cumulative metric mita exposes).
-//   Sizes use binary IEC units (B / KiB / MiB / GiB / TiB) and may also appear as KB/MB/GB.
-function parseMitaUsers(raw) {
-  const users = [];
-  if (!raw) return users;
-  const sizeRe = /^([\d.]+)\s*([KMGT]?i?B)$/i;
-  for (const rawLine of raw.split('\n')) {
-    const line = rawLine.trim();
-    if (!line) continue;
-    // skip header / separator rows
-    if (/^user\b/i.test(line) || /^[-=\s]+$/.test(line)) continue;
-    const cols = line.split(/\s+/);
-    if (cols.length < 6) continue;
-    const username = cols[0];
-    const lastActive = cols[1];
-    // last 4 columns are the size figures
-    const sizeCols = cols.slice(-4);
-    const vals = sizeCols.map(c => {
-      const m = c.match(sizeRe);
-      return m ? toMB(parseFloat(m[1]), m[2]) : null;
-    });
-    if (vals.some(v => v === null)) continue; // not a data row
-    const [d1, u1, d30, u30] = vals;
-    void d1; void u1;
-    const downloadMB = d30;
-    const uploadMB   = u30;
-    users.push({
-      username,
-      uploadMB,
-      downloadMB,
-      usedMB:   uploadMB + downloadMB,
-      lastSeen: /^\d{4}-\d{2}-\d{2}T/.test(lastActive) ? lastActive : null
-    });
-  }
-  return users;
+function applyLegacyMieruCompatibilitySnapshot(rows, collectedAt) {
+  if (cfg.protocolType !== 'mieru') return;
+  legacyMieruCompatibilityUpdater.apply(rows, collectedAt);
 }
 // Convert a size value to MB. Accepts both IEC (KiB/MiB/GiB/TiB) and
 //   decimal-ish (KB/MB/GB/TB) unit spellings; bare "B" → bytes.
-function toMB(v, unit) {
-  switch ((unit || '').toUpperCase()) {
-    case 'B':                return v / 1048576;
-    case 'KB': case 'KIB':   return v / 1024;
-    case 'GB': case 'GIB':   return v * 1024;
-    case 'TB': case 'TIB':   return v * 1048576;
-    default:                 return v; // MB / MiB
-  }
-}
-
 // ── Logs API ──────────────────────────────────────────────────────────────────
 app.get('/api/logs/:service', requireAuth, (req, res) => {
   const { service } = req.params;
@@ -3525,25 +3492,6 @@ cron.schedule('*/5 * * * *', () => {
   // Backend Panel and arrive here as desired state via /v1/sync.
 });
 
-// ── Traffic snapshot cron — every 60 s ───────────────────────────────────────
-cron.schedule('* * * * *', () => {
-  if (!db) return;
-  try {
-    // Bug 78: use `mita get users` (the real command); `mita describe users`
-    //   does not exist and always produced empty output.
-    const raw  = execSync('mita get users 2>/dev/null', { timeout: 5000 }).toString();
-    const live = parseMitaUsers(raw);
-    if (!live.length) return;
-    const ts   = new Date().toISOString();
-    const ins  = db.prepare('INSERT INTO traffic_snapshots (username,uploadMB,downloadMB,ts) VALUES (?,?,?,?)');
-    live.forEach(s => ins.run(s.username, s.uploadMB, s.downloadMB, ts));
-    live.forEach(s => {
-      const u = getUserByUsername(s.username);
-      if (u) upsertUser({ ...u, usedMB: s.usedMB, lastSeen: s.lastSeen || ts, updatedAt: ts });
-    });
-  } catch {}
-});
-
 // ── SPA catch-all ─────────────────────────────────────────────────────────────
 app.get('*', (_req, res) => res.sendFile(path.join(__dirname, '../public/index.html')));
 
@@ -3551,7 +3499,16 @@ app.get('*', (_req, res) => res.sendFile(path.join(__dirname, '../public/index.h
 const HOST = cfg.nodeListenHost || '0.0.0.0';
 const PORT = cfg.nodePort || 2222;
 
+const shutdown = createGracefulShutdown({
+  server,
+  telemetryService,
+  logger: console
+});
+process.once('SIGTERM', () => { void shutdown('SIGTERM'); });
+process.once('SIGINT', () => { void shutdown('SIGINT'); });
+
 server.listen(PORT, HOST, () => {
+  telemetryService.start();
   const lines = [
     '',
     '  ██████╗  ██╗ ██╗  ██╗ ██╗  ██╗ ██╗  ██╗',
